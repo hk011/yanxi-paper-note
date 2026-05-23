@@ -1,0 +1,40 @@
+from datetime import datetime
+
+from pydantic import BaseModel
+
+
+class PaperSummary(BaseModel):
+    id: int
+    title: str
+    status: str
+    total_pages: int
+    parsed_pages: int
+    parse_elapsed_seconds: int = 0
+    error_message: str
+    created_at: datetime
+
+
+class PaperDetail(PaperSummary):
+    pdf_url: str
+    markdown_url: str | None = None
+    has_markdown: bool = False
+    note_url: str | None = None
+    has_note: bool = False
+    note_version: int = 0
+
+
+class NoteUpdateBody(BaseModel):
+    content: str
+
+
+class NoteRefineRequest(BaseModel):
+    conversation_id: int
+    scope: str = "turn"  # turn | conversation
+    intent: str = "refine"  # refine | expand | compare | summarize
+    assistant_message_id: int | None = None
+    model: str = ""
+
+
+class NoteRefineApplyBody(BaseModel):
+    content: str
+    model: str = ""
