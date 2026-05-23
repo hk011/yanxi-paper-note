@@ -1,5 +1,7 @@
 .env
 .cursor/
+*.tsbuildinfo
+backend/.pycache_check/
 backend/data/
 backend/.venv/
 backend/yanxi.db
