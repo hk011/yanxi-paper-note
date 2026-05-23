@@ -1,5 +1,6 @@
 .env
 .cursor/
+docs/GIT_WORKFLOW.md
 *.tsbuildinfo
 backend/.pycache_check/
 backend/data/
