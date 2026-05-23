@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { useAuthStore } from "./store/auth";
 import LoginPage from "./pages/LoginPage";
 import HomePage from "./pages/HomePage";
+import ModelsPage from "./pages/ModelsPage";
 import PaperPage from "./pages/PaperPage";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -30,6 +31,14 @@ export default function App() {
           element={
             <PrivateRoute>
               <HomePage />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/models"
+          element={
+            <PrivateRoute>
+              <ModelsPage />
             </PrivateRoute>
           }
         />

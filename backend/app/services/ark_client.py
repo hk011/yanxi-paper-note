@@ -325,12 +325,14 @@ async def complete_text(
     input_messages: list[dict],
     enable_thinking: bool = False,
     timeout: float = 60.0,
+    api_url: str | None = None,
+    api_key: str | None = None,
 ) -> str:
     """非流式 Responses 调用，返回完整文本。"""
     settings = get_settings()
-    url = f"{settings.ark_url.rstrip('/')}/responses"
+    url = f"{(api_url or settings.ark_url).rstrip('/')}/responses"
     headers = {
-        "Authorization": f"Bearer {settings.ark_key}",
+        "Authorization": f"Bearer {api_key or settings.ark_key}",
         "Content-Type": "application/json",
     }
     body: dict[str, Any] = {
@@ -354,12 +356,14 @@ async def stream_response(
     tools: list[dict] | None = None,
     previous_response_id: str | None = None,
     on_content: Callable[[str], Awaitable[None]] | None = None,
+    api_url: str | None = None,
+    api_key: str | None = None,
 ) -> AsyncIterator[StreamEvent]:
     """单次 Responses 流式调用，返回完整文本与状态。"""
     settings = get_settings()
-    url = f"{settings.ark_url.rstrip('/')}/responses"
+    url = f"{(api_url or settings.ark_url).rstrip('/')}/responses"
     headers = {
-        "Authorization": f"Bearer {settings.ark_key}",
+        "Authorization": f"Bearer {api_key or settings.ark_key}",
         "Content-Type": "application/json",
     }
     body: dict[str, Any] = {
@@ -399,6 +403,8 @@ async def run_with_tool_loop(
     emit: Callable[[StreamEvent], Awaitable[None]],
     emit_content: bool = True,
     enable_thinking: bool = True,
+    api_url: str | None = None,
+    api_key: str | None = None,
 ) -> str:
     """流式调用 + 自动执行 gen_figure 等自定义工具并续写。"""
     messages = list(input_messages)
@@ -410,9 +416,9 @@ async def run_with_tool_loop(
         pending_calls: dict[str, dict] = {}
 
         settings = get_settings()
-        url = f"{settings.ark_url.rstrip('/')}/responses"
+        url = f"{(api_url or settings.ark_url).rstrip('/')}/responses"
         headers = {
-            "Authorization": f"Bearer {settings.ark_key}",
+            "Authorization": f"Bearer {api_key or settings.ark_key}",
             "Content-Type": "application/json",
         }
         body: dict[str, Any] = {

@@ -4,7 +4,7 @@ from sqlalchemy.pool import NullPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.core.config import get_settings
-from app.db.models import User
+from app.db.models import User, UserModel
 from app.services.user_account import ensure_unique_account_code
 
 _engine = None
@@ -36,6 +36,12 @@ def _migrate_db() -> None:
         if "parse_finished_at" not in cols:
             conn.exec_driver_sql(
                 "ALTER TABLE paper ADD COLUMN parse_finished_at DATETIME"
+            )
+            conn.commit()
+        conv_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(conversation)")}
+        if "kind" not in conv_cols:
+            conn.exec_driver_sql(
+                "ALTER TABLE conversation ADD COLUMN kind VARCHAR DEFAULT 'qa'"
             )
             conn.commit()
         conv_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(conversation)")}

@@ -15,8 +15,11 @@ from app.db.session import get_engine
 from app.prompts.chat import CHAT_SYSTEM
 from app.schemas.events import StreamEvent
 from app.prompts.chat import FOLLOWUP_SUGGESTIONS_USER
-from app.services.ark_client import complete_text, run_with_tool_loop
 from app.services.content_builder import build_paper_skeleton, load_content_list
+from app.services.ark_client import GEN_FIGURE_TOOL
+from app.services.chat_tools import make_gen_figure_tool_handler
+from app.services.llm import complete_text, run_with_tool_loop
+from app.services.model_registry import default_model_key, list_model_options, resolve_model
 from app.services.mineru import paper_data_dir
 
 
@@ -45,7 +48,7 @@ def _load_skeleton(data_dir: Path) -> str:
 def get_or_create_conversation(session: Session, paper_id: int) -> Conversation:
     conv = session.exec(
         select(Conversation)
-        .where(Conversation.paper_id == paper_id)
+        .where(Conversation.paper_id == paper_id, Conversation.kind == "qa")
         .order_by(Conversation.updated_at.desc())
     ).first()
     if conv:
@@ -58,7 +61,7 @@ def get_or_create_conversation(session: Session, paper_id: int) -> Conversation:
 
 
 def create_conversation(session: Session, paper_id: int, title: str = "新对话") -> Conversation:
-    conv = Conversation(paper_id=paper_id, title=title)
+    conv = Conversation(paper_id=paper_id, title=title, kind="qa")
     session.add(conv)
     session.commit()
     session.refresh(conv)
@@ -68,7 +71,7 @@ def create_conversation(session: Session, paper_id: int, title: str = "新对话
 def list_conversations(session: Session, paper_id: int) -> list[Conversation]:
     return session.exec(
         select(Conversation)
-        .where(Conversation.paper_id == paper_id)
+        .where(Conversation.paper_id == paper_id, Conversation.kind == "qa")
         .order_by(Conversation.updated_at.desc())
     ).all()
 
@@ -129,7 +132,8 @@ def _parse_suggestion_lines(raw: str) -> list[dict[str, str]]:
 
 async def generate_followup_suggestions(
     *,
-    model: str,
+    user_id: int,
+    model_key: str,
     history: list[Message],
     user_text: str,
     answer: str,
@@ -138,8 +142,10 @@ async def generate_followup_suggestions(
     dialogue = _format_dialogue_for_suggestions(history, user_text, answer)
     prompt = FOLLOWUP_SUGGESTIONS_USER.format(dialogue=dialogue)
     try:
+        with Session(get_engine()) as session:
+            endpoint = resolve_model(session, user_id, model_key)
         raw = await complete_text(
-            model=model,
+            endpoint=endpoint,
             input_messages=[{"role": "user", "content": prompt}],
             enable_thinking=False,
             timeout=45.0,
@@ -258,7 +264,6 @@ async def run_chat_turn(
     attachments: list[dict],
     emit,
 ) -> None:
-    settings = get_settings()
     data_dir = paper_data_dir(user_id, paper_id)
     engine = get_engine()
 
@@ -275,7 +280,7 @@ async def run_chat_turn(
 
     with Session(engine) as session:
         conv = session.get(Conversation, conversation_id)
-        if not conv or conv.paper_id != paper_id:
+        if not conv or conv.paper_id != paper_id or conv.kind != "qa":
             raise ValueError("会话不存在")
         history = session.exec(
             select(Message)
@@ -302,7 +307,9 @@ async def run_chat_turn(
         user_message_id = user_msg.id
 
         # 在 Session 内组装消息，避免 commit 后 ORM 实例脱离会话再访问属性
-        tools = [{"type": "web_search", "limit": 10}] if enable_search else []
+        tools: list[dict] = [GEN_FIGURE_TOOL]
+        if enable_search:
+            tools.insert(0, {"type": "web_search", "limit": 10})
         input_messages = build_chat_messages(
             system_prompt=system_prompt,
             history=history,
@@ -343,11 +350,14 @@ async def run_chat_turn(
         await emit(ev)
 
     try:
+        with Session(engine) as session:
+            endpoint = resolve_model(session, user_id, model or "")
+        tool_handler = make_gen_figure_tool_handler(paper_id, user_id)
         await run_with_tool_loop(
-            model=model or settings.model_list[0],
+            endpoint=endpoint,
             input_messages=input_messages,
             tools=tools,
-            tool_handler=_noop_tool,
+            tool_handler=tool_handler,
             emit=on_emit,
             enable_thinking=enable_thinking,
         )
@@ -370,7 +380,7 @@ async def run_chat_turn(
             had_tool_call=had_tool_call,
             references_json=json.dumps(references[:20], ensure_ascii=False),
             tool_trace_json=json.dumps(tool_trace[-80:], ensure_ascii=False),
-            model=model,
+            model=endpoint.key,
             prompt_tokens=usage.get("prompt_tokens", 0),
             completion_tokens=usage.get("completion_tokens", 0),
         )
@@ -382,12 +392,15 @@ async def run_chat_turn(
         session.commit()
         session.refresh(assistant)
 
-        suggestion_model = _pick_suggestion_model(
-            settings.model_list or [model],
-            model or settings.model_list[0],
-        )
+        with Session(engine) as session:
+            options = list_model_options(session, user_id)
+            suggestion_key = _pick_suggestion_model(
+                [opt.id for opt in options],
+                endpoint.key,
+            )
         followups = await generate_followup_suggestions(
-            model=suggestion_model,
+            user_id=user_id,
+            model_key=suggestion_key,
             history=history_for_suggestions,
             user_text=user_text,
             answer=answer,

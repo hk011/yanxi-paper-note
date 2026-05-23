@@ -1,8 +1,5 @@
 import { Typography } from "antd";
-import {
-  buildAuthenticatedUrl,
-  buildPaperFileUrl,
-} from "../api/client";
+import { parseFigureOutput } from "../utils/figureOutput";
 import type { TimelineItem } from "../types/events";
 
 const { Text, Paragraph } = Typography;
@@ -23,31 +20,6 @@ function normalizeHit(hit: unknown) {
       url,
     snippet: (row.snippet as string) || (row.description as string) || "",
   };
-}
-
-function parseFigureOutput(output: unknown, paperId: number) {
-  let data: Record<string, unknown> | null = null;
-  if (typeof output === "string") {
-    try {
-      data = JSON.parse(output) as Record<string, unknown>;
-    } catch {
-      return null;
-    }
-  } else if (output && typeof output === "object") {
-    data = output as Record<string, unknown>;
-  }
-  if (!data) return null;
-
-  const apiUrl = data.api_url as string | undefined;
-  const imageUrl = data.image_url as string | undefined;
-  const src = apiUrl
-    ? buildAuthenticatedUrl(apiUrl)
-    : imageUrl
-      ? buildPaperFileUrl(paperId, imageUrl)
-      : undefined;
-  const message = data.message as string | undefined;
-  const prompt = data.prompt as string | undefined;
-  return { src, message, prompt };
 }
 
 function SearchHitsList({ hits }: { hits: unknown[] }) {

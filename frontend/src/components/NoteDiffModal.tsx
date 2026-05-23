@@ -24,6 +24,9 @@ interface Props {
   paperId: number;
   refineModel?: string;
   applying?: boolean;
+  title?: string;
+  applyLabel?: string;
+  loadingHint?: string;
   onApply: (mergedContent: string) => void;
   onCancel: () => void;
 }
@@ -128,6 +131,9 @@ export default function NoteDiffModal({
   paperId,
   refineModel,
   applying,
+  title = "笔记融合预览",
+  applyLabel = "应用融合结果",
+  loadingHint = "正在生成融合后的笔记…",
   onApply,
   onCancel,
 }: Props) {
@@ -185,7 +191,7 @@ export default function NoteDiffModal({
 
   return (
     <Modal
-      title="笔记融合预览"
+      title={title}
       open={open}
       width={960}
       zIndex={1200}
@@ -216,7 +222,7 @@ export default function NoteDiffModal({
         >
           {summary.pending > 0
             ? `应用（未决 ${summary.pending} 块将按「接受」处理）`
-            : "应用合并结果"}
+            : applyLabel}
         </Button>,
       ]}
     >
@@ -224,11 +230,11 @@ export default function NoteDiffModal({
         <div className="note-diff-toolbar">
           <div className="note-diff-toolbar-summary">
             {refineModel ? (
-              <span className="note-diff-model-tag">融合模型：{refineModel}</span>
+              <span className="note-diff-model-tag">模型：{refineModel}</span>
             ) : null}
             <Text type="secondary">
             {loading
-              ? "正在生成融合后的笔记…"
+              ? loadingHint
               : hunks.length > 0
                 ? `共 ${hunks.length} 处修改 · +${stats.added}/−${stats.removed} 行 · 已接受 ${summary.accept} · 保留原版 ${summary.reject}`
                 : `新增 ${stats.added} 行 · 删除 ${stats.removed} 行`}
@@ -266,7 +272,7 @@ export default function NoteDiffModal({
             {hunks.length === 0 ? (
               <div className="note-diff-empty">
                 {stats.added === 0 && stats.removed === 0 ? (
-                  <Text type="secondary">融合结果与当前笔记无差异</Text>
+                  <Text type="secondary">修改稿与当前笔记无差异</Text>
                 ) : (
                   <pre className="note-diff-unified">
                     {diffLines.map((line, idx) => (

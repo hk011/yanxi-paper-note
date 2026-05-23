@@ -27,10 +27,14 @@ export default function ThoughtTimeline({
   const [panelOpen, setPanelOpen] = useState(false);
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
 
-  /** 流式进行中：仅展示当前 pending 步骤，完成后自动从视图移除 */
+  /** 流式进行中：展示 pending 步骤 + 已完成的工具步骤（如 gen_figure 配图） */
   const visibleItems = useMemo(() => {
     if (!active) return items;
-    return items.filter((item) => item.status === "pending");
+    return items.filter(
+      (item) =>
+        item.status === "pending" ||
+        (item.kind === "tool" && item.status === "success")
+    );
   }, [items, active]);
 
   const chainItems = useMemo(

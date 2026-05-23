@@ -10,7 +10,6 @@ from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
 from app.core.auth import get_current_user
-from app.core.config import get_settings
 from app.db.models import Conversation, Message, Paper, User
 from app.db.session import get_engine, get_session
 from app.schemas.chat import (
@@ -22,6 +21,7 @@ from app.schemas.chat import (
     ChatSendRequest,
     ChatSuggestionsOut,
     ChatSuggestionItem,
+    ModelOptionOut,
 )
 from app.schemas.events import StreamEvent
 from app.services.chat_pipeline import (
@@ -32,6 +32,7 @@ from app.services.chat_pipeline import (
     list_conversations,
     run_chat_turn,
 )
+from app.services.model_registry import default_model_key, list_model_options
 from app.services.mineru import paper_data_dir
 
 router = APIRouter(prefix="/api/papers/{paper_id}/chat", tags=["chat"])
@@ -82,7 +83,7 @@ def _resolve_conversation(
 ) -> Conversation:
     if conversation_id is not None:
         conv = session.get(Conversation, conversation_id)
-        if not conv or conv.paper_id != paper_id:
+        if not conv or conv.paper_id != paper_id or conv.kind != "qa":
             raise HTTPException(404, "会话不存在")
         return conv
     return get_or_create_conversation(session, paper_id)
@@ -95,9 +96,14 @@ def chat_config(
     session: Annotated[Session, Depends(get_session)],
 ):
     _ensure_paper(paper_id, user, session)
-    settings = get_settings()
-    models = settings.model_list or ["doubao-seed-2-0-pro-260215"]
-    return ChatConfigOut(models=models, default_model=models[0])
+    options = list_model_options(session, user.id)
+    return ChatConfigOut(
+        models=[
+            ModelOptionOut(id=opt.id, label=opt.label, source=opt.source)
+            for opt in options
+        ],
+        default_model=default_model_key(session, user.id),
+    )
 
 
 @router.get("/suggestions", response_model=ChatSuggestionsOut)
@@ -172,7 +178,7 @@ def get_chat_conversation(
 ):
     _ensure_paper(paper_id, user, session)
     conv = session.get(Conversation, conversation_id)
-    if not conv or conv.paper_id != paper_id:
+    if not conv or conv.paper_id != paper_id or conv.kind != "qa":
         raise HTTPException(404, "会话不存在")
     return _conversation_out(session, conv)
 
@@ -247,9 +253,7 @@ async def send_chat_message(
             raise HTTPException(400, "论文尚未就绪，暂无法问答")
         conv = _resolve_conversation(session, paper_id, body.conversation_id)
         conversation_id = conv.id
-
-    settings = get_settings()
-    model = body.model or settings.model_list[0]
+        model = body.model or default_model_key(session, user.id)
     attachments = [a.model_dump() for a in body.attachments]
 
     async def event_generator():

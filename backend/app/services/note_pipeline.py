@@ -8,23 +8,26 @@ from pathlib import Path
 
 from sqlmodel import Session, select
 
-from app.core.config import get_settings
 from app.db.models import Asset, Note, Paper
 from app.db.session import get_engine
 from app.prompts.note import (
     FINAL_NOTE_USER_TEMPLATE,
-    NOTE_SYSTEM,
-    OUTLINE_USER,
     SECTION_DEFS,
     SECTION_USER_TEMPLATE,
+    build_note_system,
+    build_outline_user,
+    section_instruction,
 )
 from app.schemas.events import StreamEvent
-from app.services.ark_client import DEFAULT_TOOLS, run_with_tool_loop
+from app.services.ark_client import DEFAULT_TOOLS
 from app.services.content_builder import (
+    build_image_catalog,
     build_paper_skeleton,
-    list_mineru_images,
+    format_image_catalog,
     load_content_list,
 )
+from app.services.llm import run_with_tool_loop as llm_run_with_tool_loop
+from app.services.model_registry import ModelEndpoint, resolve_model
 from app.services.mineru import paper_data_dir
 from app.services.tools.image_gen import format_tool_output, generate_figure
 
@@ -54,13 +57,29 @@ def _enrich_event(event: StreamEvent, **extra: str) -> StreamEvent:
     return StreamEvent(type=event.type, data=data)
 
 
-async def run_note_pipeline(paper_id: int, user_id: int, regenerate: bool = False) -> None:
-    settings = get_settings()
-    model = settings.model_list[0] if settings.model_list else "doubao-seed-2-0-pro-260215"
+async def run_note_pipeline(
+    paper_id: int,
+    user_id: int,
+    regenerate: bool = False,
+    model_key: str = "",
+) -> None:
     engine = get_engine()
+    endpoint: ModelEndpoint | None = None
+    with Session(engine) as session:
+        try:
+            endpoint = resolve_model(session, user_id, model_key)
+        except ValueError as e:
+            await _emit(
+                paper_id,
+                StreamEvent(type="status", data={"status": "failed", "error": str(e)}),
+            )
+            await _emit(paper_id, StreamEvent(type="done", data={}))
+            return
 
     try:
-        await _run_note_pipeline_body(paper_id, user_id, regenerate, model, engine)
+        await _run_note_pipeline_body(
+            paper_id, user_id, regenerate, endpoint, engine
+        )
     except Exception as e:
         with Session(engine) as session:
             paper = session.get(Paper, paper_id)
@@ -80,7 +99,7 @@ async def run_note_pipeline(paper_id: int, user_id: int, regenerate: bool = Fals
 
 
 async def _run_note_pipeline_body(
-    paper_id: int, user_id: int, regenerate: bool, model: str, engine
+    paper_id: int, user_id: int, regenerate: bool, endpoint: ModelEndpoint, engine
 ) -> None:
     paper_title = "论文"
     with Session(engine) as session:
@@ -104,8 +123,8 @@ async def _run_note_pipeline_body(
 
     content_list = load_content_list(data_dir)
     skeleton = build_paper_skeleton(content_list, parsed_md)
-    image_list = list_mineru_images(mineru_dir)
-    image_list_text = "\n".join(f"- ![]({p})" for p in image_list[:40]) or "（无提取图片）"
+    image_catalog = build_image_catalog(content_list, parsed_md)
+    image_list_text = format_image_catalog(image_catalog)
 
     with Session(engine) as session:
         paper = session.get(Paper, paper_id)
@@ -113,6 +132,13 @@ async def _run_note_pipeline_body(
             paper.status = "noting"
             session.add(paper)
             session.commit()
+
+    enable_web_search = endpoint.provider == "ark"
+    note_system = build_note_system(enable_web_search=enable_web_search)
+    outline_user_template = build_outline_user(enable_web_search=enable_web_search)
+    outline_tools = (
+        [{"type": "web_search", "limit": 10}] if enable_web_search else None
+    )
 
     await _emit(
         paper_id,
@@ -143,10 +169,13 @@ async def _run_note_pipeline_body(
     )
 
     outline_input = [
-        {"role": "system", "content": NOTE_SYSTEM},
+        {"role": "system", "content": note_system},
         {
             "role": "user",
-            "content": OUTLINE_USER.format(paper_skeleton=skeleton[:14000]),
+            "content": outline_user_template.format(
+                paper_skeleton=skeleton[:14000],
+                image_list=image_list_text[:12000],
+            ),
         },
     ]
 
@@ -158,10 +187,10 @@ async def _run_note_pipeline_body(
     async def outline_emit(ev: StreamEvent) -> None:
         await emit(_enrich_event(ev, phase="outline"))
 
-    outline_text = await run_with_tool_loop(
-        model=model,
+    outline_text = await llm_run_with_tool_loop(
+        endpoint=endpoint,
         input_messages=outline_input,
-        tools=[{"type": "web_search", "limit": 10}],
+        tools=outline_tools,
         tool_handler=_noop_tool,
         on_content=on_outline_content,
         emit=outline_emit,
@@ -185,6 +214,11 @@ async def _run_note_pipeline_body(
     images_lock = asyncio.Lock()
 
     async def tool_handler(name: str, args: dict) -> str:
+        if name in ("web_search", "search"):
+            return json.dumps(
+                {"message": "当前模型不支持联网搜索，请仅依据论文内容撰写"},
+                ensure_ascii=False,
+            )
         if name != "gen_figure":
             return json.dumps({"message": "unknown tool"}, ensure_ascii=False)
         prompt = args.get("prompt", "")
@@ -236,7 +270,6 @@ async def _run_note_pipeline_body(
     async def draft_section(section: dict[str, str]) -> tuple[str, str, str]:
         section_id = section["id"]
         section_title = section["title"]
-        instruction = section["instruction"]
 
         async with semaphore:
             await _emit(
@@ -259,14 +292,16 @@ async def _run_note_pipeline_body(
                 )
 
             section_input = [
-                {"role": "system", "content": NOTE_SYSTEM},
+                {"role": "system", "content": note_system},
                 {
                     "role": "user",
                     "content": SECTION_USER_TEMPLATE.format(
                         outline=outline[:6000],
                         paper_skeleton=skeleton[:10000],
                         image_list=image_list_text,
-                        section_instruction=instruction,
+                        section_instruction=section_instruction(
+                            section, enable_web_search=enable_web_search
+                        ),
                     ),
                 },
             ]
@@ -277,8 +312,8 @@ async def _run_note_pipeline_body(
                 draft_parts.append(delta)
 
             try:
-                section_text = await run_with_tool_loop(
-                    model=model,
+                section_text = await llm_run_with_tool_loop(
+                    endpoint=endpoint,
                     input_messages=section_input,
                     tools=DEFAULT_TOOLS,
                     tool_handler=tool_handler,
@@ -343,7 +378,7 @@ async def _run_note_pipeline_body(
 
     note_path.write_text("", encoding="utf-8")
     final_input = [
-        {"role": "system", "content": NOTE_SYSTEM},
+        {"role": "system", "content": note_system},
         {
             "role": "user",
             "content": FINAL_NOTE_USER_TEMPLATE.format(
@@ -363,8 +398,8 @@ async def _run_note_pipeline_body(
     async def final_emit(ev: StreamEvent) -> None:
         await emit(_enrich_event(ev, phase="final"))
 
-    await run_with_tool_loop(
-        model=model,
+    await llm_run_with_tool_loop(
+        endpoint=endpoint,
         input_messages=final_input,
         tools=DEFAULT_TOOLS,
         tool_handler=tool_handler,
@@ -404,7 +439,7 @@ async def _run_note_pipeline_body(
         ).first()
         if existing_note:
             existing_note.md_path = str(note_path)
-            existing_note.model = model
+            existing_note.model = endpoint.key
             session.add(existing_note)
         else:
             session.add(
@@ -412,7 +447,7 @@ async def _run_note_pipeline_body(
                     paper_id=paper_id,
                     version=1,
                     md_path=str(note_path),
-                    model=model,
+                    model=endpoint.key,
                 )
             )
         session.commit()

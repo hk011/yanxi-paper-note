@@ -11,11 +11,21 @@ from sqlmodel import Session, select
 from fastapi.security import HTTPAuthorizationCredentials
 
 from app.core.auth import decode_token, get_current_user, security
-from app.core.config import get_settings
 from app.db.models import Asset, Conversation, Note, Paper, User, utc_now
 from app.db.session import get_session
 from app.schemas.events import StreamEvent
-from app.schemas.paper import NoteRefineApplyBody, NoteRefineRequest, NoteUpdateBody, PaperDetail, PaperSummary
+from app.schemas.paper import (
+    NoteRefineApplyBody,
+    NoteRefineRequest,
+    NoteRegenerateBody,
+    NoteUpdateBody,
+    NoteVersionListOut,
+    NoteVersionRestoreBody,
+    NoteVersionSummary,
+    PaperDetail,
+    PaperSummary,
+)
+from app.services.model_registry import default_model_key, model_label, resolve_model
 from app.services.mineru import count_pdf_pages, paper_data_dir
 from app.services.parse_time import parse_elapsed_seconds
 from app.services.parse_worker import (
@@ -93,6 +103,7 @@ def get_paper(
     note = session.exec(
         select(Note).where(Note.paper_id == paper_id).order_by(Note.version.desc())
     ).first()
+    stored_model = note.model if note else ""
     return PaperDetail(
         **_to_summary(paper).model_dump(),
         pdf_url=f"/api/papers/{paper_id}/pdf",
@@ -101,6 +112,8 @@ def get_paper(
         note_url=f"/api/papers/{paper_id}/note" if has_note else None,
         has_note=has_note,
         note_version=note.version if note else 0,
+        note_model=stored_model,
+        note_model_label=model_label(session, user.id, stored_model),
     )
 
 
@@ -289,7 +302,12 @@ def get_note(
     note_path = paper_data_dir(user.id, paper_id) / "note.md"
     if not note_path.exists():
         raise HTTPException(404, "解读笔记尚未生成")
-    return PlainTextResponse(note_path.read_text(encoding="utf-8"), media_type="text/plain")
+    from app.services.note_content import normalize_note_image_refs
+
+    raw = note_path.read_text(encoding="utf-8")
+    return PlainTextResponse(
+        normalize_note_image_refs(raw, paper_id), media_type="text/plain"
+    )
 
 
 @router.put("/{paper_id}/note")
@@ -334,6 +352,79 @@ def update_note(
     return {"ok": True, "note_version": note_version}
 
 
+@router.get("/{paper_id}/note/versions", response_model=NoteVersionListOut)
+def list_note_versions_api(
+    paper_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_session)],
+):
+    from app.services.note_versions import list_note_versions
+
+    paper = session.get(Paper, paper_id)
+    if not paper or paper.user_id != user.id:
+        raise HTTPException(404, "论文不存在")
+    raw = list_note_versions(session, paper_id, user.id)
+    items = [NoteVersionSummary(**row) for row in raw]
+    current = max((i.version for i in items), default=0)
+    return NoteVersionListOut(items=items, current_version=current)
+
+
+@router.get("/{paper_id}/note/versions/{version}")
+def get_note_version_api(
+    paper_id: int,
+    version: int,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_session)],
+):
+    from fastapi.responses import PlainTextResponse
+
+    from app.services.note_versions import get_note_version_content
+    from app.services.note_content import normalize_note_image_refs
+
+    paper = session.get(Paper, paper_id)
+    if not paper or paper.user_id != user.id:
+        raise HTTPException(404, "论文不存在")
+    try:
+        content = get_note_version_content(session, paper_id, user.id, version)
+    except FileNotFoundError:
+        raise HTTPException(404, "笔记版本不存在")
+    return PlainTextResponse(
+        normalize_note_image_refs(content, paper_id), media_type="text/plain"
+    )
+
+
+@router.post("/{paper_id}/note/versions/restore")
+def restore_note_version_api(
+    paper_id: int,
+    body: NoteVersionRestoreBody,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_session)],
+):
+    from app.services.note_refine import apply_refined_note as do_apply
+    from app.services.note_versions import get_note_version_content
+
+    paper = session.get(Paper, paper_id)
+    if not paper or paper.user_id != user.id:
+        raise HTTPException(404, "论文不存在")
+    if paper.status == "noting":
+        raise HTTPException(400, "笔记生成中，暂不可恢复")
+    try:
+        content = get_note_version_content(
+            session, paper_id, user.id, body.version
+        )
+    except FileNotFoundError:
+        raise HTTPException(404, "笔记版本不存在")
+    try:
+        return do_apply(
+            paper_id=paper_id,
+            user_id=user.id,
+            content=content,
+            model=f"restore_v{body.version}",
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 @router.post("/{paper_id}/note/refine")
 async def refine_note(
     paper_id: int,
@@ -363,8 +454,11 @@ async def refine_note(
     if body.scope == "turn" and not body.assistant_message_id:
         raise HTTPException(400, "单轮融合须指定 assistant_message_id")
 
-    settings = get_settings()
-    model = body.model or settings.model_list[0]
+    try:
+        endpoint = resolve_model(session, user.id, body.model or "")
+        model_key = endpoint.key
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
     async def event_generator():
         queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
@@ -381,7 +475,7 @@ async def refine_note(
                     scope=body.scope,
                     intent=body.intent,
                     assistant_message_id=body.assistant_message_id,
-                    model=model,
+                    model=model_key,
                     emit=emit,
                 )
             except Exception as e:
@@ -410,6 +504,45 @@ async def refine_note(
     )
 
 
+@router.post("/{paper_id}/note/repair-gen-figures")
+def repair_note_gen_figures(
+    paper_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_session)],
+):
+    """将 assets/ 中已生成但未引用的配图补入笔记（新建版本）。"""
+    from app.services.note_content import (
+        list_unreferenced_gen_assets,
+        merge_missing_gen_figures,
+        normalize_note_image_refs,
+    )
+    from app.services.note_refine import apply_refined_note as do_apply
+
+    paper = session.get(Paper, paper_id)
+    if not paper or paper.user_id != user.id:
+        raise HTTPException(404, "论文不存在")
+    data_dir = paper_data_dir(user.id, paper_id)
+    note_path = data_dir / "note.md"
+    if not note_path.exists():
+        raise HTTPException(404, "解读笔记尚未生成")
+
+    raw = note_path.read_text(encoding="utf-8")
+    orphans = list_unreferenced_gen_assets(data_dir, raw)
+    if not orphans:
+        return {"ok": True, "repaired": False, "message": "无遗漏配图"}
+
+    merged = merge_missing_gen_figures(
+        normalize_note_image_refs(raw, paper_id), orphans
+    )
+    result = do_apply(
+        paper_id=paper_id,
+        user_id=user.id,
+        content=merged,
+        model="repair_gen_figures",
+    )
+    return {**result, "repaired": True, "figures": orphans}
+
+
 @router.post("/{paper_id}/note/refine/apply")
 def apply_refined_note(
     paper_id: int,
@@ -431,6 +564,8 @@ def apply_refined_note(
             user_id=user.id,
             content=body.content,
             model=body.model,
+            conversation_id=body.conversation_id,
+            assistant_message_id=body.assistant_message_id,
         )
     except FileNotFoundError:
         raise HTTPException(404, "解读笔记尚未生成")
@@ -495,6 +630,7 @@ def export_note_pdf(
 @router.post("/{paper_id}/note/regenerate")
 async def regenerate_note(
     paper_id: int,
+    body: NoteRegenerateBody,
     background_tasks: BackgroundTasks,
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_session)],
@@ -509,12 +645,19 @@ async def regenerate_note(
     if paper.status not in ("parsed", "done", "noting", "failed"):
         raise HTTPException(400, "论文尚未解析完成，无法生成笔记")
 
+    try:
+        resolve_model(session, user.id, body.model or "")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
     paper.status = "noting"
     session.add(paper)
     session.commit()
 
     reset_parse_queue(paper_id)
-    background_tasks.add_task(run_note_pipeline, paper_id, user.id, True)
+    background_tasks.add_task(
+        run_note_pipeline, paper_id, user.id, True, body.model or ""
+    )
     return {"status": "noting"}
 
 

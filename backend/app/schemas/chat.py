@@ -3,8 +3,14 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
+class ModelOptionOut(BaseModel):
+    id: str
+    label: str
+    source: str
+
+
 class ChatConfigOut(BaseModel):
-    models: list[str]
+    models: list[ModelOptionOut]
     default_model: str
     context_limit: int = 256_000
 

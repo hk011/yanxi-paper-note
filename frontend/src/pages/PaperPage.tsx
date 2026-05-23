@@ -21,17 +21,22 @@ import {
   EditOutlined,
   MoreOutlined,
   ReloadOutlined,
+  HistoryOutlined,
 } from "@ant-design/icons";
 import {
   api,
   buildPaperPdfUrl,
+  ModelOption,
+  NoteVersionSummary,
   PaperDetail,
   saveBlob,
   subscribeNoteRefineStream,
   subscribePaperEvents,
 } from "../api/client";
-import ChatPanel from "../components/ChatPanel";
+import AiEditIcon from "../components/AiEditIcon";
+import ChatPanel, { type ChatPanelMode } from "../components/ChatPanel";
 import MarkdownPreview from "../components/MarkdownPreview";
+import ModelSwitcher, { isCustomModel, modelLabel } from "../components/ModelSwitcher";
 import NoteDiffModal from "../components/NoteDiffModal";
 import NoteEditorPanel from "../components/NoteEditorPanel";
 import NoteRenderer from "../components/NoteRenderer";
@@ -40,6 +45,8 @@ import PdfViewer from "../components/PdfViewer";
 import NoteGenerationPanel from "../components/NoteGenerationPanel";
 import WorkspaceShell from "../components/WorkspaceShell";
 import { useStreamEvents } from "../hooks/useStreamEvents";
+import { useStickToBottom } from "../hooks/useStickToBottom";
+import ScrollToBottomButton from "../components/ScrollToBottomButton";
 import type { StreamEvent } from "../types/events";
 import { formatElapsed } from "../utils/formatElapsed";
 import { printNoteArea } from "../utils/printNote";
@@ -69,6 +76,8 @@ const mineruStateLabels: Record<string, string> = {
   uploading: "上传中",
 };
 
+const NOTE_MODEL_KEY = "yanxi:note-model";
+
 export default function PaperPage() {
   const { id } = useParams<{ id: string }>();
   const paperId = Number(id);
@@ -86,14 +95,31 @@ export default function PaperPage() {
   const [noteDraft, setNoteDraft] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
   const [chatCollapsed, setChatCollapsed] = useState(false);
+  const [chatMode, setChatMode] = useState<ChatPanelMode>("qa");
   const [refineOpen, setRefineOpen] = useState(false);
   const [refineLoading, setRefineLoading] = useState(false);
   const [refineApplying, setRefineApplying] = useState(false);
   const [refineOldContent, setRefineOldContent] = useState("");
   const [refineNewContent, setRefineNewContent] = useState("");
   const [refineModel, setRefineModel] = useState("");
+  const [diffKind, setDiffKind] = useState<"refine" | "note_edit">("refine");
+  const [versionModalOpen, setVersionModalOpen] = useState(false);
+  const [noteVersions, setNoteVersions] = useState<NoteVersionSummary[]>([]);
+  const [versionPreview, setVersionPreview] = useState<{
+    version: number;
+    content: string;
+  } | null>(null);
+  const [versionPreviewLoading, setVersionPreviewLoading] = useState(false);
+  const [versionRestoring, setVersionRestoring] = useState(false);
+  const [noteEditApplyCtx, setNoteEditApplyCtx] = useState<{
+    conversationId: number;
+    assistantMessageId?: number;
+  } | null>(null);
   const refineAbortRef = useRef<(() => void) | null>(null);
   const refineContentRef = useRef("");
+  const [noteModels, setNoteModels] = useState<ModelOption[]>([]);
+  const [noteModel, setNoteModel] = useState("");
+  const [generatingModelLabel, setGeneratingModelLabel] = useState("");
   const [sidebarPapers, setSidebarPapers] = useState<
     { id: number; title: string; status: string }[]
   >([]);
@@ -122,6 +148,24 @@ export default function PaperPage() {
     paper?.status === "noting" ||
     paper?.status === "parsed" ||
     regenerating;
+
+  useEffect(() => {
+    void api.listModels().then((res) => {
+      setNoteModels(res.models);
+      const saved = localStorage.getItem(NOTE_MODEL_KEY);
+      const pick =
+        (saved && res.models.some((m) => m.id === saved) && saved) ||
+        res.default_model;
+      setNoteModel(pick);
+    }).catch(() => {
+      /* 模型列表加载失败时仍允许使用内置默认项 */
+    });
+  }, []);
+
+  const handleNoteModelChange = useCallback((next: string) => {
+    setNoteModel(next);
+    localStorage.setItem(NOTE_MODEL_KEY, next);
+  }, []);
 
   const loadPaper = useCallback(async () => {
     const id = paperId;
@@ -159,6 +203,7 @@ export default function PaperPage() {
     setNoteEditing(false);
     setNoteDraft("");
     setNoteSaving(false);
+    setChatMode("qa");
     sseStartedRef.current = false;
     switchPaperStream();
     loadPaper().catch((e) =>
@@ -252,6 +297,7 @@ export default function PaperPage() {
         sseStartedRef.current = false;
         void loadPaper();
         setRegenerating(false);
+        setGeneratingModelLabel("");
       }
     );
     return () => {
@@ -293,16 +339,22 @@ export default function PaperPage() {
   };
 
   const handleGenerateNote = async () => {
+    if (!noteModel) {
+      message.warning("请先选择笔记生成模型");
+      return;
+    }
     try {
       resetStream();
       setNoteContent("");
       setNoteEditing(false);
       setNoteDraft("");
-      await api.regenerateNote(paperId);
+      setGeneratingModelLabel(modelLabel(noteModels, noteModel));
+      await api.regenerateNote(paperId, noteModel);
       setRegenerating(true);
       setPaper((p) => (p ? { ...p, status: "noting", has_note: false } : p));
     } catch (e) {
       setRegenerating(false);
+      setGeneratingModelLabel("");
       message.error(e instanceof Error ? e.message : "生成失败");
     }
   };
@@ -358,6 +410,49 @@ export default function PaperPage() {
 
   const noteStreaming = isStreaming && (paper?.status === "noting" || regenerating);
 
+  const noteStickEnabled =
+    pipelinePhase === "final" && finalStatus === "running";
+
+  const {
+    bindContainer: bindNoteScrollContainer,
+    handleScroll: handleNoteScroll,
+    jumpToBottom: jumpNoteToBottom,
+    showScrollToBottom: showNoteScrollToBottom,
+  } = useStickToBottom({
+    enabled: noteStickEnabled,
+    contentDeps: [noteContent],
+  });
+
+  const loadVersionPreview = useCallback(
+    async (version: number) => {
+      setVersionPreviewLoading(true);
+      try {
+        const content = await api.getNoteVersion(paperId, version);
+        setVersionPreview({ version, content });
+      } catch (e) {
+        message.error(e instanceof Error ? e.message : "加载版本失败");
+      } finally {
+        setVersionPreviewLoading(false);
+      }
+    },
+    [paperId]
+  );
+
+  const openVersionHistory = useCallback(async () => {
+    try {
+      const data = await api.listNoteVersions(paperId);
+      setNoteVersions(data.items);
+      setVersionModalOpen(true);
+      const pick =
+        data.items.find((v) => !v.is_current)?.version ??
+        data.items[data.items.length - 1]?.version ??
+        data.current_version;
+      if (pick) await loadVersionPreview(pick);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "加载版本列表失败");
+    }
+  }, [paperId, loadVersionPreview]);
+
   if (!paper) {
     return (
       <div style={{ padding: 48, textAlign: "center" }}>
@@ -377,8 +472,48 @@ export default function PaperPage() {
 
   const handleStartEdit = () => {
     if (!canEditNote) return;
+    if (chatMode === "note_edit") {
+      message.warning("请先完成或退出 AI 编辑");
+      return;
+    }
     setNoteDraft(noteContent);
     setNoteEditing(true);
+  };
+
+  const handleStartAiEdit = () => {
+    if (!canEditNote) return;
+    if (noteEditing) {
+      message.warning("请先保存或退出手动编辑");
+      return;
+    }
+    setChatCollapsed(false);
+    setChatMode("note_edit");
+  };
+
+  const handleExitAiEdit = () => {
+    setChatMode("qa");
+  };
+
+  const handleNoteEditRequestReview = (
+    draft: string,
+    ctx: { conversationId: number; assistantMessageId?: number }
+  ) => {
+    if (!noteContent.trim()) {
+      message.warning("笔记内容为空");
+      return;
+    }
+    if (!draft.trim()) {
+      message.warning("修改稿为空");
+      return;
+    }
+    refineAbortRef.current?.();
+    setNoteEditApplyCtx(ctx);
+    setDiffKind("note_edit");
+    setRefineOldContent(noteContent);
+    setRefineNewContent(draft);
+    setRefineModel("");
+    setRefineLoading(false);
+    setRefineOpen(true);
   };
 
   const handleCancelEdit = () => {
@@ -416,6 +551,7 @@ export default function PaperPage() {
     }
     refineAbortRef.current?.();
     refineContentRef.current = "";
+    setDiffKind("refine");
     setRefineOldContent(noteContent);
     setRefineNewContent("");
     setRefineModel(chatModel);
@@ -454,12 +590,23 @@ export default function PaperPage() {
     }
     setRefineApplying(true);
     try {
-      const result = await api.applyRefinedNote(paperId, content);
-      setNoteContent(content);
+      const result = await api.applyRefinedNote(
+        paperId,
+        content,
+        diffKind === "note_edit" && noteEditApplyCtx
+          ? {
+              conversation_id: noteEditApplyCtx.conversationId,
+              assistant_message_id: noteEditApplyCtx.assistantMessageId,
+            }
+          : undefined
+      );
+      const saved = await api.fetchNote(paperId);
+      setNoteContent(saved);
       setPaper((p) =>
         p ? { ...p, has_note: true, note_version: result.note_version } : p
       );
       setRefineOpen(false);
+      setNoteEditApplyCtx(null);
       message.success(`笔记已更新至 v${result.note_version}`);
     } catch (e) {
       message.error(e instanceof Error ? e.message : "保存失败");
@@ -473,6 +620,65 @@ export default function PaperPage() {
     setRefineOpen(false);
     setRefineLoading(false);
     setRefineNewContent("");
+  };
+
+  const handleRepairGenFigures = async () => {
+    setVersionRestoring(true);
+    try {
+      const result = await api.repairNoteGenFigures(paperId);
+      if (!result.repaired) {
+        message.info(result.message || "无遗漏配图");
+        return;
+      }
+      const content = await api.fetchNote(paperId);
+      setNoteContent(content);
+      setPaper((p) =>
+        p
+          ? {
+              ...p,
+              has_note: true,
+              note_version: result.note_version ?? p.note_version,
+            }
+          : p
+      );
+      const list = await api.listNoteVersions(paperId);
+      setNoteVersions(list.items);
+      await loadVersionPreview(list.current_version);
+      message.success(
+        `已补全 ${result.figures?.length ?? 0} 张配图，当前 v${result.note_version}`
+      );
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "补全失败");
+    } finally {
+      setVersionRestoring(false);
+    }
+  };
+
+  const handleRestoreVersion = (version: number) => {
+    Modal.confirm({
+      title: `恢复为 v${version}？`,
+      content: "将把当前笔记备份后，用所选版本内容覆盖。",
+      okText: "恢复",
+      cancelText: "取消",
+      onOk: async () => {
+        setVersionRestoring(true);
+        try {
+          const result = await api.restoreNoteVersion(paperId, version);
+          const content = await api.fetchNote(paperId);
+          setNoteContent(content);
+          setPaper((p) =>
+            p ? { ...p, has_note: true, note_version: result.note_version } : p
+          );
+          setVersionModalOpen(false);
+          message.success(`已恢复并保存为 v${result.note_version}`);
+        } catch (e) {
+          message.error(e instanceof Error ? e.message : "恢复失败");
+          throw e;
+        } finally {
+          setVersionRestoring(false);
+        }
+      },
+    });
   };
 
   const handleSaveNote = async () => {
@@ -541,6 +747,12 @@ export default function PaperPage() {
     paper.status === "done" ||
     paper.status === "parsed";
 
+  const customNoteModel = isCustomModel(noteModels, noteModel);
+
+  const activeNoteModelLabel = isNoting
+    ? generatingModelLabel || modelLabel(noteModels, noteModel)
+    : paper.note_model_label;
+
   const renderNotePanel = () => (
     <div className={`note-panel${noteEditing ? " note-panel--editing" : ""}`}>
       <NoteGenerationPanel
@@ -552,8 +764,14 @@ export default function PaperPage() {
         sectionProgress={sectionProgress}
         sectionTimelines={sectionTimelines}
         paperId={paperId}
+        modelLabel={activeNoteModelLabel}
       />
       <div className={`note-print-area${noteEditing ? " note-print-area--hidden" : ""}`} ref={notePrintRef}>
+        {activeNoteModelLabel && (noteContent || isNoting) ? (
+          <p className="note-model-caption">
+            {isNoting ? "正在使用" : "本笔记由"} {activeNoteModelLabel} 生成
+          </p>
+        ) : null}
         <h1 className="note-print-title">{paper.title}</h1>
         {noteContent || isNoting ? (
           <>
@@ -578,9 +796,22 @@ export default function PaperPage() {
             {paper.status === "parsed" && !isParsing ? (
               <>
                 <p>解析已完成，可开始生成解读笔记。</p>
-                <Button type="primary" onClick={handleGenerateNote}>
-                  生成解读笔记
-                </Button>
+                <div className="note-generate-actions">
+                  {noteModels.length > 0 ? (
+                    <ModelSwitcher
+                      models={noteModels}
+                      value={noteModel}
+                      onChange={handleNoteModelChange}
+                      compact
+                    />
+                  ) : null}
+                  <Button type="primary" onClick={() => void handleGenerateNote()}>
+                    生成解读笔记
+                  </Button>
+                </div>
+                {customNoteModel ? (
+                  <p className="note-generate-hint">自定义模型不支持联网搜索</p>
+                ) : null}
               </>
             ) : (
               <p>{isParsing ? "解析完成后可生成解读笔记。" : "暂无笔记"}</p>
@@ -654,17 +885,53 @@ export default function PaperPage() {
     </div>
   ) : (
     <div className="note-toolbar">
-      {canEditNote && showNote && (
-        <Tooltip title="编辑笔记">
+      {showNote && noteModels.length > 0 && !isNoting && (
+        <ModelSwitcher
+          models={noteModels}
+          value={noteModel}
+          onChange={handleNoteModelChange}
+          compact
+          disabled={noteStreaming}
+        />
+      )}
+      {(paper.has_note || paper.status === "done") && showNote && paper.note_version > 0 && (
+        <Tooltip title="笔记版本历史">
           <button
             type="button"
-            className="note-toolbar-btn"
-            onClick={handleStartEdit}
-            aria-label="编辑笔记"
+            className="note-version-btn"
+            onClick={() => void openVersionHistory()}
+            aria-label="笔记版本"
           >
-            <EditOutlined />
+            <HistoryOutlined style={{ marginRight: 4 }} />
+            v{paper.note_version}
           </button>
         </Tooltip>
+      )}
+      {canEditNote && showNote && (
+        <>
+          <Tooltip title="AI 编辑笔记">
+            <button
+              type="button"
+              className={`note-toolbar-btn note-toolbar-btn--ai-edit${
+                chatMode === "note_edit" ? " is-active" : ""
+              }`}
+              onClick={handleStartAiEdit}
+              aria-label="AI 编辑笔记"
+            >
+              <AiEditIcon />
+            </button>
+          </Tooltip>
+          <Tooltip title="手动编辑">
+            <button
+              type="button"
+              className="note-toolbar-btn"
+              onClick={handleStartEdit}
+              aria-label="手动编辑笔记"
+            >
+              <EditOutlined />
+            </button>
+          </Tooltip>
+        </>
       )}
       {(paper.has_note || paper.status === "done") && showNote && (
         <Dropdown
@@ -802,8 +1069,20 @@ export default function PaperPage() {
                 {showNote && (
                   <div className="paper-compare-pane paper-compare-pane--note">
                     <div className="paper-compare-pane-label">解读笔记</div>
-                    <div className="paper-compare-pane-content">
-                      {renderNotePanel()}
+                    <div className="paper-compare-pane-scroll-wrap">
+                      <div
+                        className="paper-compare-pane-content"
+                        ref={bindNoteScrollContainer}
+                        onScroll={handleNoteScroll}
+                      >
+                        {renderNotePanel()}
+                      </div>
+                      <ScrollToBottomButton
+                        visible={showNoteScrollToBottom}
+                        onClick={jumpNoteToBottom}
+                        className="stick-scroll-bottom-btn note-scroll-bottom-btn"
+                        title="跟随最新内容"
+                      />
                     </div>
                   </div>
                 )}
@@ -817,6 +1096,9 @@ export default function PaperPage() {
               collapsed={chatCollapsed}
               onToggleCollapsed={() => setChatCollapsed((v) => !v)}
               enabled
+              mode={chatMode}
+              onExitNoteEdit={handleExitAiEdit}
+              onNoteEditRequestReview={handleNoteEditRequestReview}
               refining={refineLoading || refineApplying}
               onRefineTurn={(messageId, conversationId, chatModel) =>
                 startNoteRefine(conversationId, "turn", messageId, chatModel)
@@ -835,11 +1117,109 @@ export default function PaperPage() {
         oldContent={refineOldContent}
         newContent={refineNewContent}
         paperId={paperId}
-        refineModel={refineModel}
+        refineModel={refineModel || undefined}
         applying={refineApplying}
+        title={diffKind === "note_edit" ? "AI 编辑预览" : undefined}
+        applyLabel={diffKind === "note_edit" ? "应用修改" : undefined}
+        loadingHint={
+          diffKind === "note_edit"
+            ? "正在加载修改稿…"
+            : undefined
+        }
         onApply={(merged) => void handleApplyRefinedNote(merged)}
         onCancel={handleCancelRefine}
       />
+
+      <Modal
+        title="笔记版本"
+        open={versionModalOpen}
+        onCancel={() => setVersionModalOpen(false)}
+        width={920}
+        footer={null}
+        destroyOnHidden
+        className="note-version-modal"
+      >
+        <div className="note-version-layout">
+          <div className="note-version-list">
+            {noteVersions.length === 0 ? (
+              <Text type="secondary">暂无版本记录</Text>
+            ) : (
+              noteVersions.map((v) => (
+                <button
+                  key={v.version}
+                  type="button"
+                  className={`note-version-item${
+                    versionPreview?.version === v.version
+                      ? " note-version-item--active"
+                      : ""
+                  }`}
+                  onClick={() => void loadVersionPreview(v.version)}
+                >
+                  <span className="note-version-item-title">
+                    v{v.version}
+                    {v.is_current ? " · 当前" : ""}
+                  </span>
+                  {v.model ? (
+                    <span className="note-version-item-meta">{v.model}</span>
+                  ) : null}
+                </button>
+              ))
+            )}
+          </div>
+          <div className="note-version-preview-pane">
+            {versionPreviewLoading ? (
+              <div className="note-version-preview-loading">
+                <Spin />
+              </div>
+            ) : versionPreview ? (
+              <>
+                <div className="note-version-preview-toolbar">
+                  <Text type="secondary">
+                    预览 v{versionPreview.version}
+                    {noteVersions.find((v) => v.version === versionPreview.version)
+                      ?.is_current
+                      ? "（当前笔记）"
+                      : ""}
+                  </Text>
+                  <div className="note-version-preview-actions">
+                    {!noteVersions.find(
+                      (v) => v.version === versionPreview.version && v.is_current
+                    ) ? (
+                      <Button
+                        type="primary"
+                        size="small"
+                        loading={versionRestoring}
+                        onClick={() => handleRestoreVersion(versionPreview.version)}
+                      >
+                        恢复此版本
+                      </Button>
+                    ) : null}
+                    {noteVersions.some(
+                      (v) => v.is_current && v.version === versionPreview.version
+                    ) ? (
+                      <Button
+                        size="small"
+                        loading={versionRestoring}
+                        onClick={() => void handleRepairGenFigures()}
+                      >
+                        补全遗漏配图
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="note-version-preview-body">
+                  <MarkdownPreview
+                    content={versionPreview.content}
+                    paperId={paperId}
+                  />
+                </div>
+              </>
+            ) : (
+              <Text type="secondary">选择左侧版本进行预览</Text>
+            )}
+          </div>
+        </div>
+      </Modal>
 
     </WorkspaceShell>
   );

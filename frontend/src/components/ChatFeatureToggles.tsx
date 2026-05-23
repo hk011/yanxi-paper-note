@@ -8,6 +8,8 @@ interface Props {
   onSearchChange: (value: boolean) => void;
   disabled?: boolean;
   compact?: boolean;
+  searchDisabled?: boolean;
+  searchDisabledReason?: string;
 }
 
 export default function ChatFeatureToggles({
@@ -17,7 +19,19 @@ export default function ChatFeatureToggles({
   onSearchChange,
   disabled,
   compact = false,
+  searchDisabled = false,
+  searchDisabledReason = "当前模型不支持联网搜索",
 }: Props) {
+  const searchTooltip = searchDisabled
+    ? searchDisabledReason
+    : enableSearch
+      ? compact
+        ? "联网搜索：开"
+        : "联网搜索已开启"
+      : compact
+        ? "联网搜索：关"
+        : "联网搜索已关闭";
+
   if (compact) {
     return (
       <div className="chat-mode-pills">
@@ -33,12 +47,16 @@ export default function ChatFeatureToggles({
             <span>思考</span>
           </button>
         </Tooltip>
-        <Tooltip title={enableSearch ? "联网搜索：开" : "联网搜索：关"}>
+        <Tooltip title={searchTooltip}>
           <button
             type="button"
-            className={`chat-mode-pill${enableSearch ? " is-active" : ""}`}
-            onClick={() => onSearchChange(!enableSearch)}
-            disabled={disabled}
+            className={`chat-mode-pill${enableSearch ? " is-active" : ""}${
+              searchDisabled ? " is-disabled" : ""
+            }`}
+            onClick={() => {
+              if (!searchDisabled) onSearchChange(!enableSearch);
+            }}
+            disabled={disabled || searchDisabled}
             aria-pressed={enableSearch}
           >
             <GlobalOutlined />
@@ -63,12 +81,16 @@ export default function ChatFeatureToggles({
           <span>深度思考</span>
         </button>
       </Tooltip>
-      <Tooltip title={enableSearch ? "联网搜索已开启" : "联网搜索已关闭"}>
+      <Tooltip title={searchTooltip}>
         <button
           type="button"
-          className={`chat-feature-chip${enableSearch ? " is-active" : ""}`}
-          onClick={() => onSearchChange(!enableSearch)}
-          disabled={disabled}
+          className={`chat-feature-chip${enableSearch ? " is-active" : ""}${
+            searchDisabled ? " is-disabled" : ""
+          }`}
+          onClick={() => {
+            if (!searchDisabled) onSearchChange(!enableSearch);
+          }}
+          disabled={disabled || searchDisabled}
           aria-pressed={enableSearch}
         >
           <GlobalOutlined />

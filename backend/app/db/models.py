@@ -57,8 +57,18 @@ class Conversation(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     paper_id: int = Field(index=True)
     title: str = "论文问答"
+    kind: str = "qa"  # qa | note_edit
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+
+class UserModel(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    name: str = Field(index=True)
+    api_url: str
+    api_key: str
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class Message(SQLModel, table=True):

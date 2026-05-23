@@ -18,6 +18,7 @@ interface Props {
   sectionProgress: Record<string, SectionRunStatus>;
   sectionTimelines: Record<string, TimelineItem[]>;
   paperId: number;
+  modelLabel?: string;
 }
 
 function countTimelineSteps(sectionTimelines: Record<string, TimelineItem[]>) {
@@ -47,6 +48,7 @@ export default function NoteGenerationPanel({
   sectionProgress,
   sectionTimelines,
   paperId,
+  modelLabel,
 }: Props) {
   const [open, setOpen] = useState(active);
 
@@ -145,6 +147,9 @@ export default function NoteGenerationPanel({
         aria-expanded={open}
       >
         <span className="note-generation-panel-bar-label">{summaryText}</span>
+        {modelLabel ? (
+          <span className="note-generation-model-tag">{modelLabel}</span>
+        ) : null}
         {open ? <DownOutlined /> : <RightOutlined />}
       </button>
 

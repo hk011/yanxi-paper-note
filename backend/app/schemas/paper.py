@@ -21,6 +21,12 @@ class PaperDetail(PaperSummary):
     note_url: str | None = None
     has_note: bool = False
     note_version: int = 0
+    note_model: str = ""
+    note_model_label: str = ""
+
+
+class NoteRegenerateBody(BaseModel):
+    model: str = ""
 
 
 class NoteUpdateBody(BaseModel):
@@ -38,3 +44,21 @@ class NoteRefineRequest(BaseModel):
 class NoteRefineApplyBody(BaseModel):
     content: str
     model: str = ""
+    conversation_id: int | None = None
+    assistant_message_id: int | None = None
+
+
+class NoteVersionSummary(BaseModel):
+    version: int
+    model: str = ""
+    created_at: datetime | None = None
+    is_current: bool = False
+
+
+class NoteVersionListOut(BaseModel):
+    items: list[NoteVersionSummary]
+    current_version: int
+
+
+class NoteVersionRestoreBody(BaseModel):
+    version: int

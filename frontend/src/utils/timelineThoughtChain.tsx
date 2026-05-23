@@ -135,8 +135,17 @@ export function defaultExpandedKeysForTimeline(
   if (!active) return [];
   return items
     .filter((item) => {
-      if (item.status !== "pending") return false;
-      return hasExpandableContent(item, active) || item.kind === "thinking";
+      if (item.status === "pending") {
+        return hasExpandableContent(item, active) || item.kind === "thinking";
+      }
+      if (
+        item.kind === "tool" &&
+        item.tool === "gen_figure" &&
+        item.status === "success"
+      ) {
+        return hasExpandableContent(item, active);
+      }
+      return false;
     })
     .map((item) => item.key);
 }

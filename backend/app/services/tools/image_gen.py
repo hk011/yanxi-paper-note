@@ -80,8 +80,8 @@ def format_tool_output(result: dict, paper_id: int) -> str:
         {
             "image_url": rel,
             "api_url": api_path,
-            "markdown": f"![说明图]({api_path})",
-            "message": "图片已生成，请在笔记中用上述 Markdown 引用。",
+            "markdown": f"![说明图]({rel})",
+            "message": f"图片已生成，请在笔记 markdown 代码块内插入：![说明图]({rel})",
         },
         ensure_ascii=False,
     )

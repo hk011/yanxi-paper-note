@@ -9,6 +9,7 @@ import {
   PlusOutlined,
   RobotOutlined,
   SettingOutlined,
+  ThunderboltOutlined,
   UserOutlined,
 } from "@ant-design/icons";
 import { type ReactNode, useCallback, useState } from "react";
@@ -66,6 +67,7 @@ export default function WorkspaceShell({
       : undefined;
 
   const onTasksPage = location.pathname === "/";
+  const onModelsPage = location.pathname === "/models";
 
   const openPeek = useCallback(() => {
     if (!pinned) setPeekOpen(true);
@@ -146,6 +148,14 @@ export default function WorkspaceShell({
         >
           <FolderOpenOutlined />
           <span>任务管理</span>
+        </button>
+        <button
+          type="button"
+          className={`workspace-nav-item${onModelsPage ? " is-active" : ""}`}
+          onClick={() => navigate("/models")}
+        >
+          <ThunderboltOutlined />
+          <span>模型管理</span>
         </button>
       </nav>
 

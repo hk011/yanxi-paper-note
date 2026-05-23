@@ -36,6 +36,24 @@ async function request<T>(
   return res.json();
 }
 
+async function requestText(
+  path: string,
+  options: RequestInit = {}
+): Promise<string> {
+  const headers: Record<string, string> = {
+    ...(options.headers as Record<string, string>),
+  };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(path, { ...options, headers });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "请求失败");
+  }
+  return res.text();
+}
+
 export interface AuthResult {
   access_token: string;
   user_id: number;
@@ -72,10 +90,30 @@ export interface PaperDetail extends PaperSummary {
   note_url: string | null;
   has_note: boolean;
   note_version: number;
+  note_model: string;
+  note_model_label: string;
+}
+
+export interface ModelOption {
+  id: string;
+  label: string;
+  source: "builtin" | "custom";
+}
+
+export interface ModelListResponse {
+  models: ModelOption[];
+  default_model: string;
+}
+
+export interface UserCustomModel {
+  id: number;
+  name: string;
+  api_url: string;
+  created_at: string;
 }
 
 export interface ChatConfig {
-  models: string[];
+  models: ModelOption[];
   default_model: string;
   context_limit: number;
 }
@@ -121,6 +159,13 @@ export interface ChatConversationSummary {
   preview: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface NoteVersionSummary {
+  version: number;
+  model: string;
+  created_at: string | null;
+  is_current: boolean;
 }
 
 export interface ChatSendPayload {
@@ -227,10 +272,24 @@ export const api = {
       body: JSON.stringify({ content }),
     }),
 
-  regenerateNote: (id: number) =>
+  regenerateNote: (id: number, model?: string) =>
     request<{ status: string }>(`/api/papers/${id}/note/regenerate`, {
       method: "POST",
+      body: JSON.stringify({ model: model || "" }),
     }),
+
+  listModels: () => request<ModelListResponse>("/api/models"),
+
+  listCustomModels: () => request<UserCustomModel[]>("/api/models/custom"),
+
+  createCustomModel: (payload: { name: string; api_url: string; api_key: string }) =>
+    request<UserCustomModel>("/api/models/custom", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  deleteCustomModel: (id: number) =>
+    request<void>(`/api/models/custom/${id}`, { method: "DELETE" }),
 
   deletePaper: (id: number) =>
     request<void>(`/api/papers/${id}`, { method: "DELETE" }),
@@ -265,14 +324,66 @@ export const api = {
   resetChatConversation: (id: number) =>
     request<void>(`/api/papers/${id}/chat/conversation/reset`, { method: "POST" }),
 
-  applyRefinedNote: (id: number, content: string, model?: string) =>
+  applyRefinedNote: (
+    id: number,
+    content: string,
+    options?: {
+      model?: string;
+      conversation_id?: number;
+      assistant_message_id?: number;
+    }
+  ) =>
     request<{ ok: boolean; note_version: number; previous_version: number }>(
       `/api/papers/${id}/note/refine/apply`,
       {
         method: "POST",
-        body: JSON.stringify({ content, model: model || "" }),
+        body: JSON.stringify({
+          content,
+          model: options?.model || "",
+          conversation_id: options?.conversation_id,
+          assistant_message_id: options?.assistant_message_id,
+        }),
       }
     ),
+
+  listNoteVersions: (id: number) =>
+    request<{ items: NoteVersionSummary[]; current_version: number }>(
+      `/api/papers/${id}/note/versions`
+    ),
+
+  getNoteVersion: (id: number, version: number) =>
+    requestText(`/api/papers/${id}/note/versions/${version}`),
+
+  restoreNoteVersion: (id: number, version: number) =>
+    request<{ ok: boolean; note_version: number; previous_version: number }>(
+      `/api/papers/${id}/note/versions/restore`,
+      {
+        method: "POST",
+        body: JSON.stringify({ version }),
+      }
+    ),
+
+  repairNoteGenFigures: (id: number) =>
+    request<{
+      ok: boolean;
+      repaired: boolean;
+      note_version?: number;
+      figures?: string[];
+      message?: string;
+    }>(`/api/papers/${id}/note/repair-gen-figures`, { method: "POST" }),
+
+  listNoteEditConversations: (id: number) =>
+    request<{ items: ChatConversationSummary[]; active_id: number | null }>(
+      `/api/papers/${id}/note-edit/conversations`
+    ),
+
+  createNoteEditConversation: (id: number) =>
+    request<ChatConversation>(`/api/papers/${id}/note-edit/conversations`, {
+      method: "POST",
+    }),
+
+  getNoteEditConversation: (id: number, conversationId: number) =>
+    request<ChatConversation>(`/api/papers/${id}/note-edit/conversations/${conversationId}`),
 
   uploadChatImage: async (id: number, file: File) => {
     const form = new FormData();
@@ -391,42 +502,106 @@ export function subscribeChatStream(
   const controller = new AbortController();
 
   (async () => {
-    const res = await fetch(`/api/papers/${paperId}/chat/messages`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-    if (!res.ok || !res.body) {
-      onEvent({ type: "status", status: "failed", error: "请求失败" });
-      onDone?.();
-      return;
-    }
+    try {
+      const res = await fetch(`/api/papers/${paperId}/chat/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      if (!res.ok || !res.body) {
+        onEvent({ type: "status", status: "failed", error: "请求失败" });
+        return;
+      }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const parts = buffer.split("\n\n");
-      buffer = parts.pop() || "";
-      for (const part of parts) {
-        const line = part.trim();
-        if (!line.startsWith("data:")) continue;
-        try {
-          const data = JSON.parse(line.slice(5).trim()) as StreamEvent;
-          onEvent(data);
-          if (data.type === "done") onDone?.();
-        } catch {
-          /* ignore */
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() || "";
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith("data:")) continue;
+          try {
+            const data = JSON.parse(line.slice(5).trim()) as StreamEvent;
+            onEvent(data);
+          } catch {
+            /* ignore */
+          }
         }
       }
+    } catch (e) {
+      if (!(e instanceof DOMException && e.name === "AbortError")) {
+        onEvent({ type: "status", status: "failed", error: "连接中断" });
+      }
+    } finally {
+      onDone?.();
+    }
+  })();
+
+  return () => controller.abort();
+}
+
+export function subscribeNoteEditStream(
+  paperId: number,
+  payload: ChatSendPayload,
+  onEvent: StreamHandler,
+  onDone?: () => void
+): () => void {
+  const token = getToken();
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const res = await fetch(`/api/papers/${paperId}/note-edit/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      if (!res.ok || !res.body) {
+        onEvent({ type: "status", status: "failed", error: "请求失败" });
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() || "";
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith("data:")) continue;
+          try {
+            const data = JSON.parse(line.slice(5).trim()) as StreamEvent;
+            onEvent(data);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    } catch (e) {
+      if (!(e instanceof DOMException && e.name === "AbortError")) {
+        onEvent({ type: "status", status: "failed", error: "连接中断" });
+      }
+    } finally {
+      onDone?.();
     }
   })();
 
