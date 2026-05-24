@@ -46,7 +46,7 @@ export default function ModelsPage() {
                 <List.Item>
                   <List.Item.Meta
                     title={item.label}
-                    description="火山方舟 · 支持联网搜索与 gen_figure 配图"
+                    description="火山方舟 · 支持联网搜索与可选 AI 配图；小节「添加配图」用于笔记内插图"
                   />
                 </List.Item>
               )}

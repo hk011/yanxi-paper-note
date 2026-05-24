@@ -4,6 +4,23 @@
 
 ## [Unreleased]
 
+## [0.0.3] - 2026-05-24
+
+### Added
+
+- 论文问答「AI 配图」开关（默认关闭，与联网搜索并列）；开启后可调用 gen_figure，生成图可用「融入笔记」写入解读
+
+### Fixed
+
+- 小节润色改为 diff 预览后再保存，修复确认后笔记无变化的问题
+- gen 配图 404：统一 `assets/` 与 `images/gen/` 路径解析
+- 删图时移除笔记中该图的全部引用（非仅一处）
+- 失效配图在笔记中显示提示并可「移除引用」
+
+### Changed
+
+- 小节润色 diff 默认全部接受；问答关闭配图时引导使用小节「添加配图」
+
 ## [0.0.1] - 2026-05-24
 
 ### Added
@@ -36,5 +53,6 @@
 
 - v0.0.1 起：整篇 AI 编辑调整为小节级润色/配图
 
+[0.0.3]: https://github.com/hk011/yanxi-paper-note/releases/tag/v0.0.3
 [0.0.1]: https://github.com/hk011/yanxi-paper-note/releases/tag/v0.0.1
 [0.0.0]: https://github.com/hk011/yanxi-paper-note/releases/tag/v0.0.0

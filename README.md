@@ -5,10 +5,11 @@
 上传英文 PDF 论文，自动解析为结构化 Markdown，并生成中文解读笔记；支持论文问答、小节配图/润色、联网搜索与 AI 配图。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.0.1-green.svg)](https://github.com/hk011/yanxi-paper-note/releases/tag/v0.0.1)
+[![Version](https://img.shields.io/badge/version-0.0.3-green.svg)](https://github.com/hk011/yanxi-paper-note/releases/tag/v0.0.3)
 
 ## 最新动态
 
+- [2026.05.24] **v0.0.3** 问答可选 AI 配图开关；小节润色预览确认；配图路径与删图修复 → [完整更新日志](CHANGELOG.md)
 - [2026.05.24] **v0.0.1** 小节添加配图与 AI 润色；修复笔记图片显示错乱 → [完整更新日志](CHANGELOG.md)
 - [2026.05.24] **v0.0.0** 首个公开发布：PDF 解析、流式笔记、论文问答、AI 配图
 
@@ -19,7 +20,7 @@
 - 原文 PDF / 解析 Markdown / 解读笔记三栏对照
 - 大模型流式笔记生成
 - 小节添加配图、小节 AI 润色（Seedream 学术信息图）
-- 论文问答（文本 + 图片、联网搜索）
+- 论文问答（文本 + 图片、联网搜索；可选 AI 配图，生成后可用「融入笔记」）
 - 笔记导出（Markdown / PDF）
 
 ## 技术栈

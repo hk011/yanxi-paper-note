@@ -105,6 +105,7 @@ export default function PaperPage() {
   );
   const [figureModalHeading, setFigureModalHeading] = useState<string | null>(null);
   const [refineModalHeading, setRefineModalHeading] = useState<string | null>(null);
+  const [refineDiffSource, setRefineDiffSource] = useState<"chat" | "section">("chat");
   const [deletingFigurePath, setDeletingFigurePath] = useState<string | null>(null);
   const refineAbortRef = useRef<(() => void) | null>(null);
   const refineContentRef = useRef("");
@@ -446,7 +447,13 @@ export default function PaperPage() {
         setPaper((p) =>
           p ? { ...p, has_note: true, note_version: result.note_version } : p
         );
-        message.success(result.file_deleted ? "配图已删除" : "已移除引用");
+        message.success(
+          result.file_deleted
+            ? "配图与引用已删除"
+            : result.removed_lines
+              ? "已移除笔记中的配图引用"
+              : "已移除引用"
+        );
       } catch (e) {
         message.error(e instanceof Error ? e.message : "删除失败");
       } finally {
@@ -456,16 +463,18 @@ export default function PaperPage() {
     [paperId, deletingFigurePath, setNoteContent]
   );
 
-  const handleSectionRefineDone = useCallback(async () => {
-    try {
-      const saved = await api.fetchNote(paperId);
-      setNoteContent(saved);
-      message.success("本节已润色并保存");
+  const handleSectionRefineReview = useCallback(
+    (mergedContent: string, model: string) => {
       setRefineModalHeading(null);
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : "刷新笔记失败");
-    }
-  }, [paperId, setNoteContent]);
+      setRefineDiffSource("section");
+      setRefineOldContent(noteContent);
+      setRefineNewContent(mergedContent);
+      setRefineModel(model);
+      setRefineLoading(false);
+      setRefineOpen(true);
+    },
+    [noteContent]
+  );
 
   if (!paper) {
     return (
@@ -526,6 +535,7 @@ export default function PaperPage() {
     refineAbortRef.current?.();
     refineContentRef.current = "";
     setRefineOldContent(noteContent);
+    setRefineDiffSource("chat");
     setRefineNewContent("");
     setRefineModel(chatModel);
     setRefineOpen(true);
@@ -563,14 +573,16 @@ export default function PaperPage() {
     }
     setRefineApplying(true);
     try {
-      const result = await api.applyRefinedNote(paperId, content);
+      const result = await api.applyRefinedNote(paperId, content, {
+        model: refineModel || undefined,
+      });
       const saved = await api.fetchNote(paperId);
       setNoteContent(saved);
       setPaper((p) =>
         p ? { ...p, has_note: true, note_version: result.note_version } : p
       );
       setRefineOpen(false);
-      message.success("笔记已保存");
+      message.success(refineDiffSource === "section" ? "本节润色已保存" : "笔记已保存");
     } catch (e) {
       message.error(e instanceof Error ? e.message : "保存失败");
     } finally {
@@ -698,7 +710,10 @@ export default function PaperPage() {
               streaming={noteStreaming}
               sectionActions={showSectionActions}
               onAddSectionFigure={(heading) => setFigureModalHeading(heading)}
-              onRefineSection={(heading) => setRefineModalHeading(heading)}
+              onRefineSection={(heading) => {
+                setRefineOldContent(noteContent);
+                setRefineModalHeading(heading);
+              }}
               sectionFigureLoadingHeading={sectionFigureLoading}
               onDeleteFigure={(path) => void handleDeleteFigure(path)}
               deletingFigurePath={deletingFigurePath}
@@ -1004,6 +1019,9 @@ export default function PaperPage() {
         paperId={paperId}
         refineModel={refineModel || undefined}
         applying={refineApplying}
+        title={refineDiffSource === "section" ? "小节润色预览" : undefined}
+        applyLabel={refineDiffSource === "section" ? "确认保存本节" : undefined}
+        defaultHunkDecision={refineDiffSource === "section" ? "accept" : "pending"}
         onApply={(merged) => void handleApplyRefinedNote(merged)}
         onCancel={handleCancelRefine}
       />
@@ -1027,7 +1045,7 @@ export default function PaperPage() {
         paperId={paperId}
         heading={refineModalHeading || ""}
         onCancel={() => setRefineModalHeading(null)}
-        onDone={() => void handleSectionRefineDone()}
+        onReviewReady={handleSectionRefineReview}
       />
 
     </WorkspaceShell>

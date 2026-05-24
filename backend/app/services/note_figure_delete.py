@@ -14,7 +14,8 @@ from app.services.note_sections import (
     count_image_refs,
     is_gen_figure_path,
     normalize_figure_rel_path,
-    remove_one_image_markdown,
+    remove_all_image_markdown,
+    resolve_paper_file_path,
 )
 
 
@@ -50,22 +51,18 @@ def delete_gen_figure_from_note(
         raise FileNotFoundError("解读笔记尚未生成")
 
     raw = note_path.read_text(encoding="utf-8")
-    if count_image_refs(raw, rel) == 0:
+    before_refs = count_image_refs(raw, rel)
+    if before_refs == 0:
         raise ValueError("笔记中未找到该配图引用")
 
-    merged, removed = remove_one_image_markdown(raw, rel)
-    if not removed:
+    merged, removed_lines = remove_all_image_markdown(raw, rel)
+    if removed_lines == 0:
         raise ValueError("未能移除配图引用")
 
     remaining_refs = count_image_refs(merged, rel)
     file_deleted = False
-    disk_path = (data_dir / rel).resolve()
-    data_resolved = data_dir.resolve()
-    if (
-        remaining_refs == 0
-        and str(disk_path).startswith(str(data_resolved))
-        and disk_path.is_file()
-    ):
+    disk_path = resolve_paper_file_path(data_dir, rel)
+    if remaining_refs == 0 and disk_path is not None and disk_path.is_file():
         disk_path.unlink()
         file_deleted = True
 
@@ -93,4 +90,5 @@ def delete_gen_figure_from_note(
         "image_path": rel,
         "file_deleted": file_deleted,
         "remaining_refs": remaining_refs,
+        "removed_lines": removed_lines,
     }

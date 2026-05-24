@@ -848,20 +848,13 @@ def get_mineru_file(
     payload = decode_token(raw_token)
     user_id = int(payload["sub"])
 
+    from app.services.note_sections import resolve_paper_file_path
+
     paper = session.get(Paper, paper_id)
     if not paper or paper.user_id != user_id:
         raise HTTPException(404, "论文不存在")
     data_base = paper_data_dir(user_id, paper_id)
-    base = data_base / "mineru"
-    if (
-        file_path.startswith("assets/")
-        or file_path.startswith("chat_uploads/")
-        or file_path.startswith("images/gen/")
-    ):
-        base = data_base
-    target = (base / file_path).resolve()
-    if not str(target).startswith(str(data_base.resolve())):
-        raise HTTPException(403, "非法路径")
-    if not target.exists() or not target.is_file():
+    target = resolve_paper_file_path(data_base, file_path)
+    if target is None:
         raise HTTPException(404, "文件不存在")
     return FileResponse(target)

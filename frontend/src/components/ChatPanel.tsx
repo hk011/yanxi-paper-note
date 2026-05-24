@@ -110,6 +110,7 @@ export default function ChatPanel({
   const [promptTokens, setPromptTokens] = useState(0);
   const [enableThinking, setEnableThinking] = useState(true);
   const [enableSearch, setEnableSearch] = useState(false);
+  const [enableFigureGen, setEnableFigureGen] = useState(false);
   const [suggestions, setSuggestions] = useState<ChatSuggestion[]>([]);
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [conversations, setConversations] = useState<ChatConversationSummary[]>([]);
@@ -434,6 +435,7 @@ export default function ChatPanel({
       model,
       enable_thinking: enableThinking,
       enable_search: enableSearch,
+      enable_figure_gen: enableFigureGen,
       attachments: pendingAttachments.map(({ path, name }) => ({ path, name: name || "" })),
     };
     const onStreamDone = () => {
@@ -599,7 +601,7 @@ export default function ChatPanel({
               className="chat-welcome"
               icon={<YanxiLogo size={32} />}
               title="论文问答"
-              description="针对论文和解读笔记提问、讨论。可在小节标题旁添加配图。"
+              description="针对论文和解读笔记提问、讨论。可开启「配图」生成说明图，并用「融入笔记」写入解读。"
             />
             {promptItems.length > 0 && (
               <Prompts
@@ -835,7 +837,7 @@ export default function ChatPanel({
 
         <div
           className={`chat-composer${
-            enableThinking || enableSearch ? " chat-composer--accent" : ""
+            enableThinking || enableSearch || enableFigureGen ? " chat-composer--accent" : ""
           }`}
         >
           <Sender
@@ -876,8 +878,11 @@ export default function ChatPanel({
                     compact
                     enableThinking={enableThinking}
                     enableSearch={enableSearch}
+                    enableFigureGen={enableFigureGen}
                     onThinkingChange={setEnableThinking}
                     onSearchChange={setEnableSearch}
+                    onFigureGenChange={setEnableFigureGen}
+                    showFigureGen
                     disabled={loading}
                     searchDisabled={customModelSelected}
                     searchDisabledReason="自定义模型不支持联网搜索"

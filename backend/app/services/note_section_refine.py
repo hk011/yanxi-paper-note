@@ -6,6 +6,7 @@ import re
 
 from sqlmodel import Session
 
+from app.db.session import get_engine
 from app.prompts.note_section_refine import (
     NOTE_SECTION_REFINE_SYSTEM,
     NOTE_SECTION_REFINE_USER,
@@ -14,9 +15,7 @@ from app.schemas.events import StreamEvent
 from app.services.llm import run_with_tool_loop
 from app.services.model_registry import resolve_model
 from app.services.mineru import paper_data_dir
-from app.services.note_refine import apply_refined_note
 from app.services.note_sections import find_section_range, replace_section_body
-from app.db.session import get_engine
 
 
 def _strip_section_heading(text: str, heading: str) -> str:
@@ -116,12 +115,6 @@ async def run_section_refine(
         return
 
     merged = replace_section_body(raw, heading, refined_body)
-    saved = apply_refined_note(
-        paper_id=paper_id,
-        user_id=user_id,
-        content=merged,
-        model=endpoint.key,
-    )
 
     await emit(
         StreamEvent(
@@ -129,7 +122,8 @@ async def run_section_refine(
             data={
                 "status": "refined",
                 "heading": heading,
-                "note_version": saved.get("note_version"),
+                "merged_content": merged,
+                "model": endpoint.key,
             },
         )
     )

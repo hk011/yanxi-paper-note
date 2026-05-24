@@ -35,6 +35,10 @@ export interface StreamEvent {
   mineru_state?: string;
   parse_elapsed_seconds?: number;
   prompt_tokens?: number;
+  merged_content?: string;
+  model?: string;
+  heading?: string;
+  note_version?: number;
   completion_tokens?: number;
   total_tokens?: number;
 }

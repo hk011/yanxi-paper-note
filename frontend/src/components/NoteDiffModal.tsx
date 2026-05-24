@@ -32,6 +32,7 @@ interface Props {
   loadingHint?: string;
   variant?: "refine" | "note_edit";
   readOnly?: boolean;
+  defaultHunkDecision?: HunkDecision;
   onApply: (mergedContent: string) => void;
   onCancel: () => void;
 }
@@ -168,6 +169,7 @@ export default function NoteDiffModal({
   loadingHint = "正在生成融合后的笔记…",
   variant = "refine",
   readOnly = false,
+  defaultHunkDecision = "pending",
   onApply,
   onCancel,
 }: Props) {
@@ -224,10 +226,10 @@ export default function NoteDiffModal({
     );
     const initial: Record<string, HunkDecision> = {};
     for (const h of groupDiffIntoHunks(computeLineDiff(oldContent, newContent))) {
-      initial[h.id] = "pending";
+      initial[h.id] = defaultHunkDecision;
     }
     setDecisions(initial);
-  }, [open, oldContent, newContent, isNoteEdit, hasImageChanges, readOnly]);
+  }, [open, oldContent, newContent, isNoteEdit, hasImageChanges, readOnly, defaultHunkDecision]);
 
   const setHunkDecision = useCallback((id: string, d: HunkDecision) => {
     setDecisions((prev) => ({ ...prev, [id]: d }));

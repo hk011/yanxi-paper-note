@@ -16,7 +16,7 @@ interface Props {
   paperId: number;
   heading: string;
   onCancel: () => void;
-  onDone: () => void;
+  onReviewReady: (mergedContent: string, model: string) => void;
 }
 
 export default function SectionRefineModal({
@@ -24,7 +24,7 @@ export default function SectionRefineModal({
   paperId,
   heading,
   onCancel,
-  onDone,
+  onReviewReady,
 }: Props) {
   const [instruction, setInstruction] = useState("");
   const [enableThinking, setEnableThinking] = useState(true);
@@ -86,7 +86,14 @@ export default function SectionRefineModal({
           }
           if (ev.status === "refined") {
             setLoading(false);
-            onDone();
+            const merged =
+              typeof ev.merged_content === "string" ? ev.merged_content : "";
+            const modelKey = typeof ev.model === "string" ? ev.model : "";
+            if (merged.trim()) {
+              onReviewReady(merged, modelKey);
+            } else {
+              setError("润色结果为空");
+            }
           }
         }
       },
@@ -100,7 +107,7 @@ export default function SectionRefineModal({
     heading,
     enableThinking,
     enableSearch,
-    onDone,
+    onReviewReady,
   ]);
 
   const handleClose = () => {
@@ -121,7 +128,7 @@ export default function SectionRefineModal({
       destroyOnClose
     >
       <p className="section-action-modal-desc">
-        只改写当前小节正文，保留本节已有配图引用；可通过版本历史回滚。
+        只改写当前小节正文，保留本节已有配图引用；完成后可预览 diff 再决定是否保存。
       </p>
       <Input.TextArea
         value={instruction}

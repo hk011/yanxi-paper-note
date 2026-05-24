@@ -39,26 +39,26 @@ def is_gen_figure_path(rel: str) -> bool:
 
 
 def count_image_refs(content: str, rel: str) -> int:
-    target = normalize_figure_rel_path(rel)
-    name = Path(target).name
     count = 0
     for m in _IMAGE_MD_RE.finditer(content):
-        src = normalize_figure_rel_path(m.group(2))
-        if src == target or Path(src).name == name:
+        if _image_line_matches(m.group(2), rel):
             count += 1
     return count
 
 
+def _image_line_matches(src: str, rel: str) -> bool:
+    target = normalize_figure_rel_path(rel)
+    normalized = normalize_figure_rel_path(src)
+    return normalized == target or Path(normalized).name == Path(target).name
+
+
 def remove_one_image_markdown(content: str, rel: str) -> tuple[str, bool]:
     """移除第一处匹配的配图 markdown 行（含前后空行整理）。"""
-    target = normalize_figure_rel_path(rel)
-    name = Path(target).name
     lines = content.splitlines()
     remove_idx: int | None = None
     for i, line in enumerate(lines):
         for m in _IMAGE_MD_RE.finditer(line):
-            src = normalize_figure_rel_path(m.group(2))
-            if src == target or Path(src).name == name:
+            if _image_line_matches(m.group(2), rel):
                 remove_idx = i
                 break
         if remove_idx is not None:
@@ -70,6 +70,28 @@ def remove_one_image_markdown(content: str, rel: str) -> tuple[str, bool]:
     while remove_idx < len(new_lines) and not new_lines[remove_idx].strip():
         new_lines.pop(remove_idx)
     return "\n".join(new_lines), True
+
+
+def remove_all_image_markdown(content: str, rel: str) -> tuple[str, int]:
+    """移除所有匹配的配图 markdown 行（含 images/gen 与 assets 等同名互认）。"""
+    lines = content.splitlines()
+    kept: list[str] = []
+    removed = 0
+    for line in lines:
+        matched = False
+        for m in _IMAGE_MD_RE.finditer(line):
+            if _image_line_matches(m.group(2), rel):
+                matched = True
+                break
+        if matched:
+            removed += 1
+            while kept and not kept[-1].strip():
+                kept.pop()
+            continue
+        kept.append(line)
+    while kept and not kept[-1].strip():
+        kept.pop()
+    return "\n".join(kept), removed
 
 
 def find_section_range(content: str, heading: str) -> tuple[int, int, str]:
@@ -137,6 +159,36 @@ def gen_images_dir(data_dir: Path) -> Path:
     path = data_dir / "images" / "gen"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def resolve_paper_file_path(data_dir: Path, file_path: str) -> Path | None:
+    """解析论文静态文件路径；gen 配图支持 images/gen 与 assets 互备。"""
+    rel = normalize_figure_rel_path(file_path)
+    data_resolved = data_dir.resolve()
+    if rel.startswith("assets/") or rel.startswith("chat_uploads/") or rel.startswith(
+        "images/gen/"
+    ):
+        base = data_dir
+    else:
+        base = data_dir / "mineru"
+
+    target = (base / rel).resolve()
+    if not str(target).startswith(str(data_resolved)):
+        return None
+    if target.is_file():
+        return target
+
+    gen_name = Path(rel).name
+    if re.match(r"^gen_\d+\.png$", gen_name, re.I):
+        if rel.startswith("images/gen/"):
+            alt = (data_dir / "assets" / gen_name).resolve()
+        elif rel.startswith("assets/"):
+            alt = (data_dir / "images" / "gen" / gen_name).resolve()
+        else:
+            alt = None
+        if alt and str(alt).startswith(str(data_resolved)) and alt.is_file():
+            return alt
+    return None
 
 
 def next_gen_image_rel(data_dir: Path) -> tuple[Path, str]:

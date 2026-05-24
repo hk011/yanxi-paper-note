@@ -12,19 +12,23 @@ from sqlmodel import Session, select
 from app.core.config import get_settings
 from app.db.models import Conversation, Message, Paper, utc_now
 from app.db.session import get_engine
-from app.prompts.chat import CHAT_SYSTEM
+from app.prompts.chat import (
+    CHAT_FIGURE_CAPABILITY_OFF,
+    CHAT_FIGURE_CAPABILITY_ON,
+    CHAT_SYSTEM,
+    FOLLOWUP_SUGGESTIONS_USER,
+)
 from app.schemas.events import StreamEvent
-from app.prompts.chat import FOLLOWUP_SUGGESTIONS_USER
-from app.services.content_builder import build_paper_skeleton, load_content_list
 from app.services.ark_client import GEN_FIGURE_TOOL
 from app.services.chat_tools import make_gen_figure_tool_handler
+from app.services.content_builder import build_paper_skeleton, load_content_list
 from app.services.llm import complete_text, run_with_tool_loop
 from app.services.model_registry import default_model_key, list_model_options, resolve_model
 from app.services.mineru import paper_data_dir
 
 
-async def _noop_tool(_name: str, _args: dict) -> str:
-    return json.dumps({"error": "chat 场景不支持该工具"}, ensure_ascii=False)
+async def _noop_chat_tool(_name: str, _args: dict) -> str:
+    return json.dumps({"message": "当前问答不支持该工具"}, ensure_ascii=False)
 
 
 def _load_note(data_dir: Path) -> str:
@@ -261,6 +265,7 @@ async def run_chat_turn(
     model: str,
     enable_thinking: bool,
     enable_search: bool,
+    enable_figure_gen: bool,
     attachments: list[dict],
     emit,
 ) -> None:
@@ -274,6 +279,12 @@ async def run_chat_turn(
         paper_skeleton=skeleton,
         thinking_label="已开启" if enable_thinking else "已关闭",
         search_label="已开启" if enable_search else "已关闭",
+        figure_label="已开启" if enable_figure_gen else "已关闭",
+        figure_capability=(
+            CHAT_FIGURE_CAPABILITY_ON
+            if enable_figure_gen
+            else CHAT_FIGURE_CAPABILITY_OFF
+        ),
     )
 
     history_for_suggestions: list[Message] = []
@@ -306,10 +317,11 @@ async def run_chat_turn(
         session.refresh(user_msg)
         user_message_id = user_msg.id
 
-        # 在 Session 内组装消息，避免 commit 后 ORM 实例脱离会话再访问属性
-        tools: list[dict] = [GEN_FIGURE_TOOL]
+        tools: list[dict] = []
         if enable_search:
-            tools.insert(0, {"type": "web_search", "limit": 10})
+            tools.append({"type": "web_search", "limit": 10})
+        if enable_figure_gen:
+            tools.append(GEN_FIGURE_TOOL)
         input_messages = build_chat_messages(
             system_prompt=system_prompt,
             history=history,
@@ -352,7 +364,11 @@ async def run_chat_turn(
     try:
         with Session(engine) as session:
             endpoint = resolve_model(session, user_id, model or "")
-        tool_handler = make_gen_figure_tool_handler(paper_id, user_id)
+        tool_handler = (
+            make_gen_figure_tool_handler(paper_id, user_id)
+            if enable_figure_gen
+            else _noop_chat_tool
+        )
         await run_with_tool_loop(
             endpoint=endpoint,
             input_messages=input_messages,

@@ -107,14 +107,17 @@ def merge_missing_gen_figures(
 
 
 def list_unreferenced_gen_assets(data_dir: Path, content: str) -> list[str]:
-    assets_dir = data_dir / "assets"
-    if not assets_dir.is_dir():
-        return []
     out: list[str] = []
-    for p in sorted(assets_dir.glob("gen_*.png")):
-        rel = f"assets/{p.name}"
-        if rel not in content and p.name not in content:
-            out.append(rel)
+    seen: set[str] = set()
+    for folder in ("assets", "images/gen"):
+        base = data_dir / folder
+        if not base.is_dir():
+            continue
+        for p in sorted(base.glob("gen_*.png")):
+            rel = f"{folder}/{p.name}"
+            if rel not in content and p.name not in content and rel not in seen:
+                seen.add(rel)
+                out.append(rel)
     return out
 
 

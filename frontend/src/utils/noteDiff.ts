@@ -132,7 +132,8 @@ export function applyHunkDecisions(
     while (i < diffLines.length && diffLines[i].kind !== "same") i++;
     const hunkLines = diffLines.slice(start, i);
     const hunk = hunks[hunkIdx++];
-    const decision = decisions[hunk?.id ?? ""] ?? defaultDecision;
+    const raw = decisions[hunk?.id ?? ""] ?? defaultDecision;
+    const decision = raw === "pending" ? defaultDecision : raw;
 
     if (decision === "accept") {
       for (const l of hunkLines) {

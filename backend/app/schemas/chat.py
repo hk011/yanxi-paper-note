@@ -35,6 +35,7 @@ class ChatSendRequest(BaseModel):
     model: str = ""
     enable_thinking: bool = True
     enable_search: bool = False
+    enable_figure_gen: bool = False
     attachments: list[ChatAttachmentIn] = Field(default_factory=list)
 
 

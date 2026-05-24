@@ -17,6 +17,7 @@ interface Props extends ImgHTMLAttributes<HTMLImageElement> {
   paperId: number;
   eager?: boolean;
   onPreview?: (src: string) => void;
+  onLoadError?: () => void;
 }
 
 /** 将鉴权图片预加载为 blob URL，便于本地打印与离线渲染 */
@@ -25,16 +26,19 @@ export default function NoteImage({
   paperId,
   eager = false,
   onPreview,
+  onLoadError,
   className,
   alt,
   ...rest
 }: Props) {
   const resolved = resolveImageUrl(rawSrc, paperId);
   const [src, setSrc] = useState(resolved);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let objectUrl: string | undefined;
     let cancelled = false;
+    setFailed(false);
 
     if (!resolved || resolved.startsWith("blob:") || resolved.startsWith("data:")) {
       setSrc(resolved);
@@ -48,14 +52,20 @@ export default function NoteImage({
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         if (!res.ok) {
-          if (!cancelled) setSrc(resolved);
+          if (!cancelled) {
+            setFailed(true);
+            onLoadError?.();
+          }
           return;
         }
         const blob = await res.blob();
         objectUrl = URL.createObjectURL(blob);
         if (!cancelled) setSrc(objectUrl);
       } catch {
-        if (!cancelled) setSrc(resolved);
+        if (!cancelled) {
+          setFailed(true);
+          onLoadError?.();
+        }
       }
     })();
 
@@ -63,7 +73,11 @@ export default function NoteImage({
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [resolved]);
+  }, [resolved, onLoadError]);
+
+  if (failed) {
+    return null;
+  }
 
   return (
     <img
@@ -73,6 +87,10 @@ export default function NoteImage({
       loading={eager ? "eager" : "lazy"}
       className={className}
       onClick={() => onPreview?.(src)}
+      onError={() => {
+        setFailed(true);
+        onLoadError?.();
+      }}
     />
   );
 }

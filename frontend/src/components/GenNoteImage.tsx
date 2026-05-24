@@ -1,5 +1,6 @@
-import { DeleteOutlined } from "@ant-design/icons";
+import { DeleteOutlined, WarningOutlined } from "@ant-design/icons";
 import { Button, Popconfirm, Tooltip } from "antd";
+import { useEffect, useState } from "react";
 import NoteImage from "./NoteImage";
 import { isGenFigurePath, normalizeFigureRelPath } from "../utils/genFigure";
 
@@ -22,7 +23,35 @@ export default function GenNoteImage({
   deleting,
   onDelete,
 }: Props) {
+  const rel = normalizeFigureRelPath(rawSrc);
   const canDelete = deletable && isGenFigurePath(rawSrc) && onDelete;
+  const [broken, setBroken] = useState(false);
+
+  useEffect(() => {
+    setBroken(false);
+  }, [rel]);
+
+  if (broken && canDelete) {
+    return (
+      <span className="note-gen-figure-wrap note-gen-figure-wrap--broken">
+        <span className="note-gen-figure-broken">
+          <WarningOutlined /> 配图文件缺失（{rel}）
+        </span>
+        <Popconfirm
+          title="移除失效引用？"
+          description="将从笔记中删除该图片的 Markdown 引用。"
+          okText="移除"
+          cancelText="取消"
+          okButtonProps={{ danger: true, loading: deleting }}
+          onConfirm={() => onDelete(rel)}
+        >
+          <Button type="link" size="small" danger loading={deleting}>
+            移除引用
+          </Button>
+        </Popconfirm>
+      </span>
+    );
+  }
 
   return (
     <span className="note-gen-figure-wrap">
@@ -32,6 +61,7 @@ export default function GenNoteImage({
         eager={eager}
         className="md-img-clickable"
         onPreview={onPreview}
+        onLoadError={() => setBroken(true)}
       />
       {canDelete ? (
         <Popconfirm
@@ -40,7 +70,7 @@ export default function GenNoteImage({
           okText="删除"
           cancelText="取消"
           okButtonProps={{ danger: true, loading: deleting }}
-          onConfirm={() => onDelete(normalizeFigureRelPath(rawSrc))}
+          onConfirm={() => onDelete(rel)}
         >
           <Tooltip title="删除配图">
             <Button

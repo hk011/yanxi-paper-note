@@ -174,6 +174,7 @@ export interface ChatSendPayload {
   model: string;
   enable_thinking: boolean;
   enable_search: boolean;
+  enable_figure_gen?: boolean;
   attachments: { path: string; name: string }[];
 }
 
@@ -391,6 +392,7 @@ export const api = {
       image_path: string;
       file_deleted: boolean;
       remaining_refs: number;
+      removed_lines?: number;
     }>(`/api/papers/${id}/note/figures/delete`, {
       method: "POST",
       body: JSON.stringify({ image_path: imagePath }),

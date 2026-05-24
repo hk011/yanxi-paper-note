@@ -272,6 +272,7 @@ async def send_chat_message(
                     model=model,
                     enable_thinking=body.enable_thinking,
                     enable_search=body.enable_search,
+                    enable_figure_gen=body.enable_figure_gen,
                     attachments=attachments,
                     emit=emit,
                 )
