@@ -2,9 +2,10 @@
 
 > AI 拆解论文，人人都能读懂前沿研究
 
-上传英文 PDF 论文，自动解析为结构化 Markdown，并生成中文解读笔记；支持论文问答、联网搜索与 AI 配图。
+上传英文 PDF 论文，自动解析为结构化 Markdown，并生成中文解读笔记；支持论文问答、小节配图/润色、联网搜索与 AI 配图。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.0.1-green.svg)](https://github.com/hk011/yanxi-paper-note/releases/tag/v0.0.1)
 
 ## 功能
 
@@ -12,6 +13,7 @@
 - PDF 上传与解析（SSE 实时进度）
 - 原文 PDF / 解析 Markdown / 解读笔记三栏对照
 - 大模型流式笔记生成
+- 小节添加配图、小节 AI 润色（Seedream 学术信息图）
 - 论文问答（文本 + 图片、联网搜索）
 - 笔记导出（Markdown / PDF）
 
@@ -100,6 +102,22 @@ npm run dev
 - **SQLite** 单文件：`backend/yanxi.db`
 - 启动时自动建表（User、Paper、Note、Asset、Conversation、Message）
 - 用户 PDF、笔记、头像等文件存于 `backend/data/`
+
+## 版本历史
+
+### v0.0.1（2026-05-24）
+
+- **小节添加配图**：在章节标题旁一键生成学术信息图/架构图/流程图，自动推断图类型与宽高比
+- **小节 AI 润色**：支持自定义提示词与示例 chip，可选深度思考、联网搜索
+- **配图管理**：可删除 AI 生成的配图（Markdown 引用、磁盘文件一并清理）
+- **修复**：笔记中图片与图注布局错乱、表格居中、gen 配图预览与 diff 对齐
+- **优化**：学术配图 prompt 模板统一；Chat 专注论文问答；笔记保存改为原地覆盖
+
+### v0.0.0（2026-05-24）
+
+- 首个公开发布：PDF 解析、流式笔记生成、论文问答、联网搜索、AI 配图
+- 自定义模型接入（OpenAI 兼容 API）
+- 笔记版本备份与切换、AI 编辑笔记（已在 v0.0.1 中调整为小节级润色/配图）
 
 ## License
 
