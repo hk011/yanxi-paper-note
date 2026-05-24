@@ -18,6 +18,9 @@ from app.schemas.paper import (
     NoteRefineApplyBody,
     NoteRefineRequest,
     NoteRegenerateBody,
+    NoteDeleteFigureBody,
+    NoteSectionAddFigureBody,
+    NoteSectionRefineBody,
     NoteUpdateBody,
     NoteVersionListOut,
     NoteVersionRestoreBody,
@@ -25,7 +28,14 @@ from app.schemas.paper import (
     PaperDetail,
     PaperSummary,
 )
-from app.services.model_registry import default_model_key, model_label, resolve_model
+from app.services.model_registry import (
+    default_model_key,
+    extract_llm_model_key,
+    model_label,
+    paper_note_model_label,
+    resolve_model,
+    resolve_note_model_on_save,
+)
 from app.services.mineru import count_pdf_pages, paper_data_dir
 from app.services.parse_time import parse_elapsed_seconds
 from app.services.parse_worker import (
@@ -104,6 +114,18 @@ def get_paper(
         select(Note).where(Note.paper_id == paper_id).order_by(Note.version.desc())
     ).first()
     stored_model = note.model if note else ""
+    if note and not extract_llm_model_key(stored_model):
+        repaired = resolve_note_model_on_save(
+            "",
+            stored_model,
+            session=session,
+            paper_id=paper_id,
+        )
+        if extract_llm_model_key(repaired):
+            note.model = repaired
+            session.add(note)
+            session.commit()
+            stored_model = repaired
     return PaperDetail(
         **_to_summary(paper).model_dump(),
         pdf_url=f"/api/papers/{paper_id}/pdf",
@@ -113,7 +135,9 @@ def get_paper(
         has_note=has_note,
         note_version=note.version if note else 0,
         note_model=stored_model,
-        note_model_label=model_label(session, user.id, stored_model),
+        note_model_label=paper_note_model_label(
+            session, user.id, paper_id, stored_model
+        ),
     )
 
 
@@ -419,7 +443,7 @@ def restore_note_version_api(
             paper_id=paper_id,
             user_id=user.id,
             content=content,
-            model=f"restore_v{body.version}",
+            model="",
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -510,13 +534,8 @@ def repair_note_gen_figures(
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_session)],
 ):
-    """将 assets/ 中已生成但未引用的配图补入笔记（新建版本）。"""
-    from app.services.note_content import (
-        list_unreferenced_gen_assets,
-        merge_missing_gen_figures,
-        normalize_note_image_refs,
-    )
-    from app.services.note_refine import apply_refined_note as do_apply
+    """列出 assets/ 中已生成但未引用的配图（不自动插入，避免错位到文末）。"""
+    from app.services.note_content import list_unreferenced_gen_assets
 
     paper = session.get(Paper, paper_id)
     if not paper or paper.user_id != user.id:
@@ -531,16 +550,145 @@ def repair_note_gen_figures(
     if not orphans:
         return {"ok": True, "repaired": False, "message": "无遗漏配图"}
 
-    merged = merge_missing_gen_figures(
-        normalize_note_image_refs(raw, paper_id), orphans
+    names = ", ".join(orphans)
+    return {
+        "ok": True,
+        "repaired": False,
+        "figures": orphans,
+        "message": f"发现 {len(orphans)} 张未引用配图（{names}），请在小节旁使用「添加配图」",
+    }
+
+
+@router.post("/{paper_id}/note/sections/add-figure")
+async def add_figure_to_note_section(
+    paper_id: int,
+    body: NoteSectionAddFigureBody,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_session)],
+):
+    from app.services.note_section_figure import add_figure_to_section as do_add
+
+    paper = session.get(Paper, paper_id)
+    if not paper or paper.user_id != user.id:
+        raise HTTPException(404, "论文不存在")
+    if paper.status == "noting":
+        raise HTTPException(400, "笔记生成中，请稍后再试")
+    if not body.heading.strip():
+        raise HTTPException(400, "请指定小节标题")
+
+    try:
+        return await do_add(
+            paper_id=paper_id,
+            user_id=user.id,
+            heading=body.heading.strip(),
+            instruction=body.instruction.strip(),
+        )
+    except FileNotFoundError:
+        raise HTTPException(404, "解读笔记尚未生成")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(500, f"配图生成失败：{e}")
+
+
+@router.post("/{paper_id}/note/figures/delete")
+def delete_note_figure(
+    paper_id: int,
+    body: NoteDeleteFigureBody,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_session)],
+):
+    from app.services.note_figure_delete import delete_gen_figure_from_note
+
+    paper = session.get(Paper, paper_id)
+    if not paper or paper.user_id != user.id:
+        raise HTTPException(404, "论文不存在")
+    if paper.status == "noting":
+        raise HTTPException(400, "笔记生成中，请稍后再试")
+    if not body.image_path.strip():
+        raise HTTPException(400, "请指定配图路径")
+
+    try:
+        return delete_gen_figure_from_note(
+            paper_id=paper_id,
+            user_id=user.id,
+            image_path=body.image_path.strip(),
+        )
+    except FileNotFoundError:
+        raise HTTPException(404, "解读笔记尚未生成")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/{paper_id}/note/sections/refine")
+async def refine_note_section(
+    paper_id: int,
+    body: NoteSectionRefineBody,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_session)],
+):
+    from app.services.note_section_refine import run_section_refine
+
+    paper = session.get(Paper, paper_id)
+    if not paper or paper.user_id != user.id:
+        raise HTTPException(404, "论文不存在")
+    if paper.status == "noting":
+        raise HTTPException(400, "笔记生成中，暂不可润色")
+    note_path = paper_data_dir(user.id, paper_id) / "note.md"
+    if not note_path.exists():
+        raise HTTPException(404, "解读笔记尚未生成")
+    if not body.heading.strip():
+        raise HTTPException(400, "请指定小节标题")
+    if not body.instruction.strip():
+        raise HTTPException(400, "请填写润色要求")
+
+    try:
+        resolve_model(session, user.id, body.model or "")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    async def event_generator():
+        queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
+
+        async def emit(ev: StreamEvent) -> None:
+            await queue.put(ev)
+
+        async def worker() -> None:
+            try:
+                await run_section_refine(
+                    paper_id=paper_id,
+                    user_id=user.id,
+                    heading=body.heading.strip(),
+                    instruction=body.instruction.strip(),
+                    model=body.model or "",
+                    enable_thinking=body.enable_thinking,
+                    enable_search=body.enable_search,
+                    emit=emit,
+                )
+            except Exception as e:
+                await emit(
+                    StreamEvent(type="status", data={"status": "failed", "error": str(e)})
+                )
+                await emit(StreamEvent(type="done", data={}))
+            finally:
+                await queue.put(None)
+
+        task = asyncio.create_task(worker())
+        try:
+            while True:
+                ev = await queue.get()
+                if ev is None:
+                    break
+                yield ev.to_sse()
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-    result = do_apply(
-        paper_id=paper_id,
-        user_id=user.id,
-        content=merged,
-        model="repair_gen_figures",
-    )
-    return {**result, "repaired": True, "figures": orphans}
 
 
 @router.post("/{paper_id}/note/refine/apply")
@@ -705,7 +853,11 @@ def get_mineru_file(
         raise HTTPException(404, "论文不存在")
     data_base = paper_data_dir(user_id, paper_id)
     base = data_base / "mineru"
-    if file_path.startswith("assets/") or file_path.startswith("chat_uploads/"):
+    if (
+        file_path.startswith("assets/")
+        or file_path.startswith("chat_uploads/")
+        or file_path.startswith("images/gen/")
+    ):
         base = data_base
     target = (base / file_path).resolve()
     if not str(target).startswith(str(data_base.resolve())):

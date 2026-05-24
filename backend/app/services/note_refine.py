@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 
 from sqlmodel import Session, select
@@ -18,8 +17,8 @@ from app.prompts.note_refine import (
 )
 from app.schemas.events import StreamEvent
 from app.services.llm import run_with_tool_loop
-from app.services.model_registry import resolve_model
 from app.services.mineru import paper_data_dir
+from app.services.model_registry import resolve_model, resolve_note_model_on_save
 
 
 def _load_note(data_dir: Path) -> str:
@@ -99,8 +98,9 @@ def apply_refined_note(
     model: str,
     conversation_id: int | None = None,
     assistant_message_id: int | None = None,
+    auto_insert_orphans: bool = False,
 ) -> dict:
-    """备份当前笔记、写入新版并入库。"""
+    """写入 note.md 并更新当前版本记录（不递增版本号、不备份历史文件）。"""
     if not content.strip():
         raise ValueError("笔记内容不能为空")
 
@@ -120,32 +120,45 @@ def apply_refined_note(
             session=session,
             conversation_id=conversation_id,
             assistant_message_id=assistant_message_id,
+            auto_insert_orphans=auto_insert_orphans,
         )
-        current_version = session.exec(
+        current_note = session.exec(
             select(Note).where(Note.paper_id == paper_id).order_by(Note.version.desc())
         ).first()
-        prev_version = current_version.version if current_version else 1
-        new_version = prev_version + 1
-
-        backup_path = data_dir / f"note_v{prev_version}.md"
-        shutil.copy2(note_path, backup_path)
 
         note_path.write_text(prepared, encoding="utf-8")
 
-        session.add(
-            Note(
-                paper_id=paper_id,
-                version=new_version,
-                md_path=str(note_path),
-                model=model or "refine",
-            )
+        existing_model = current_note.model if current_note else ""
+        stored_model = resolve_note_model_on_save(
+            model,
+            existing_model,
+            session=session,
+            paper_id=paper_id,
         )
-        session.commit()
+
+        if current_note:
+            current_note.md_path = str(note_path)
+            if stored_model:
+                current_note.model = stored_model
+            session.add(current_note)
+            note_version = current_note.version
+            session.commit()
+        else:
+            session.add(
+                Note(
+                    paper_id=paper_id,
+                    version=1,
+                    md_path=str(note_path),
+                    model=stored_model or model or "",
+                )
+            )
+            session.commit()
+            note_version = 1
 
     return {
         "ok": True,
-        "note_version": new_version,
-        "previous_version": prev_version,
+        "note_version": note_version,
+        "previous_version": note_version,
     }
 
 

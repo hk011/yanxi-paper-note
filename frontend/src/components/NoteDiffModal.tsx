@@ -1,7 +1,9 @@
 import { Button, Modal, Segmented, Spin, Typography } from "antd";
 import { CheckOutlined, CloseOutlined, UndoOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import MarkdownPreview from "./MarkdownPreview";
+import NoteImage from "./NoteImage";
+import NoteImageDiffStrip from "./NoteImageDiffStrip";
+import NoteRenderer from "./NoteRenderer";
 import {
   applyHunkDecisions,
   computeLineDiff,
@@ -11,10 +13,11 @@ import {
   type DiffHunk,
   type HunkDecision,
 } from "../utils/noteDiff";
+import { diffMarkdownImages, parseImageLine } from "../utils/markdownImages";
 
 const { Text } = Typography;
 
-type ViewMode = "review" | "preview";
+type ViewMode = "review" | "preview" | "images";
 
 interface Props {
   open: boolean;
@@ -27,8 +30,43 @@ interface Props {
   title?: string;
   applyLabel?: string;
   loadingHint?: string;
+  variant?: "refine" | "note_edit";
+  readOnly?: boolean;
   onApply: (mergedContent: string) => void;
   onCancel: () => void;
+}
+
+function DiffLineRow({
+  line,
+  paperId,
+}: {
+  line: { kind: string; text: string };
+  paperId: number;
+}) {
+  const imageRef = parseImageLine(line.text);
+  return (
+    <div className={`note-diff-line note-diff-line--${line.kind}`}>
+      <span className="note-diff-gutter">
+        {line.kind === "add" ? "+" : line.kind === "remove" ? "−" : " "}
+      </span>
+      <span className="note-diff-text">
+        {imageRef ? (
+          <span className="note-diff-image-row">
+            <code className="note-diff-image-path">{line.text.trim()}</code>
+            <NoteImage
+              rawSrc={imageRef.src}
+              paperId={paperId}
+              eager
+              alt={imageRef.alt || "配图"}
+              className="note-diff-inline-thumb"
+            />
+          </span>
+        ) : (
+          line.text || " "
+        )}
+      </span>
+    </div>
+  );
 }
 
 function HunkCard({
@@ -36,12 +74,14 @@ function HunkCard({
   index,
   total,
   decision,
+  paperId,
   onDecision,
 }: {
   hunk: DiffHunk;
   index: number;
   total: number;
   decision: HunkDecision;
+  paperId: number;
   onDecision: (id: string, d: HunkDecision) => void;
 }) {
   const statusLabel =
@@ -77,15 +117,7 @@ function HunkCard({
 
       <div className="note-diff-hunk-body">
         {hunk.lines.map((line, idx) => (
-          <div
-            key={`${hunk.id}-${idx}`}
-            className={`note-diff-line note-diff-line--${line.kind}`}
-          >
-            <span className="note-diff-gutter">
-              {line.kind === "add" ? "+" : line.kind === "remove" ? "−" : " "}
-            </span>
-            <span className="note-diff-text">{line.text || " "}</span>
-          </div>
+          <DiffLineRow key={`${hunk.id}-${idx}`} line={line} paperId={paperId} />
         ))}
       </div>
 
@@ -134,10 +166,15 @@ export default function NoteDiffModal({
   title = "笔记融合预览",
   applyLabel = "应用融合结果",
   loadingHint = "正在生成融合后的笔记…",
+  variant = "refine",
+  readOnly = false,
   onApply,
   onCancel,
 }: Props) {
-  const [view, setView] = useState<ViewMode>("review");
+  const isNoteEdit = variant === "note_edit";
+  const [view, setView] = useState<ViewMode>(
+    readOnly && isNoteEdit ? "preview" : isNoteEdit ? "images" : "review"
+  );
   const [decisions, setDecisions] = useState<Record<string, HunkDecision>>({});
 
   const diffLines = useMemo(
@@ -150,21 +187,47 @@ export default function NoteDiffModal({
     () => hunkDecisionSummary(hunks, decisions),
     [hunks, decisions]
   );
+  const imageDiff = useMemo(
+    () => diffMarkdownImages(oldContent, newContent),
+    [oldContent, newContent]
+  );
+  const hasImageChanges =
+    imageDiff.added.length > 0 || imageDiff.removed.length > 0;
 
   const mergedPreview = useMemo(
     () => applyHunkDecisions(diffLines, decisions, "accept"),
     [diffLines, decisions]
   );
 
+  const viewOptions = useMemo(() => {
+    const opts: { label: string; value: ViewMode }[] = [];
+    if (isNoteEdit && hasImageChanges) {
+      opts.push({ label: "配图对比", value: "images" });
+    }
+    opts.push({ label: "预览对比", value: "preview" });
+    if (!readOnly && (!isNoteEdit || hunks.length > 0)) {
+      opts.push({ label: "逐块审阅", value: "review" });
+    }
+    return opts;
+  }, [isNoteEdit, hasImageChanges, hunks.length, readOnly]);
+
   useEffect(() => {
     if (!open) return;
-    setView("review");
+    setView(
+      readOnly && isNoteEdit
+        ? "preview"
+        : isNoteEdit && hasImageChanges
+          ? "images"
+          : isNoteEdit
+            ? "preview"
+            : "review"
+    );
     const initial: Record<string, HunkDecision> = {};
     for (const h of groupDiffIntoHunks(computeLineDiff(oldContent, newContent))) {
       initial[h.id] = "pending";
     }
     setDecisions(initial);
-  }, [open, oldContent, newContent]);
+  }, [open, oldContent, newContent, isNoteEdit, hasImageChanges, readOnly]);
 
   const setHunkDecision = useCallback((id: string, d: HunkDecision) => {
     setDecisions((prev) => ({ ...prev, [id]: d }));
@@ -209,7 +272,14 @@ export default function NoteDiffModal({
         },
       }}
       onCancel={onCancel}
-      footer={[
+      footer={
+        readOnly
+          ? [
+              <Button key="close" type="primary" onClick={onCancel}>
+                关闭
+              </Button>,
+            ]
+          : [
         <Button key="cancel" onClick={onCancel} disabled={applying}>
           放弃
         </Button>,
@@ -255,10 +325,7 @@ export default function NoteDiffModal({
               size="small"
               value={view}
               onChange={(v) => setView(v as ViewMode)}
-              options={[
-                { label: "逐块审阅", value: "review" },
-                { label: "预览对比", value: "preview" },
-              ]}
+              options={viewOptions}
             />
           </div>
         </div>
@@ -266,6 +333,19 @@ export default function NoteDiffModal({
         {loading ? (
           <div className="note-diff-loading">
             <Spin tip="模型正在重写笔记…" />
+          </div>
+        ) : view === "images" ? (
+          <div className="note-diff-images-scroll">
+            <NoteImageDiffStrip
+              oldContent={oldContent}
+              newContent={mergedPreview}
+              paperId={paperId}
+            />
+            {!hasImageChanges ? (
+              <div className="note-diff-empty">
+                <Text type="secondary">本次修改未涉及配图引用</Text>
+              </div>
+            ) : null}
           </div>
         ) : view === "review" ? (
           <div className="note-diff-review-scroll">
@@ -276,15 +356,7 @@ export default function NoteDiffModal({
                 ) : (
                   <pre className="note-diff-unified">
                     {diffLines.map((line, idx) => (
-                      <div
-                        key={idx}
-                        className={`note-diff-line note-diff-line--${line.kind}`}
-                      >
-                        <span className="note-diff-gutter">
-                          {line.kind === "add" ? "+" : line.kind === "remove" ? "−" : " "}
-                        </span>
-                        <span className="note-diff-text">{line.text || " "}</span>
-                      </div>
+                      <DiffLineRow key={idx} line={line} paperId={paperId} />
                     ))}
                   </pre>
                 )}
@@ -297,6 +369,7 @@ export default function NoteDiffModal({
                   index={i}
                   total={hunks.length}
                   decision={decisions[hunk.id] ?? "pending"}
+                  paperId={paperId}
                   onDecision={setHunkDecision}
                 />
               ))
@@ -306,15 +379,15 @@ export default function NoteDiffModal({
           <div className="note-diff-preview-scroll">
             <div className="note-diff-split">
               <div className="note-diff-pane">
-                <div className="note-diff-pane-label">当前版本（预览）</div>
+                <div className="note-diff-pane-label">当前版本</div>
                 <div className="note-diff-pane-preview">
-                  <MarkdownPreview content={oldContent} paperId={paperId} />
+                  <NoteRenderer content={oldContent} paperId={paperId} />
                 </div>
               </div>
               <div className="note-diff-pane">
-                <div className="note-diff-pane-label">合并后预览</div>
+                <div className="note-diff-pane-label">修改后预览</div>
                 <div className="note-diff-pane-preview">
-                  <MarkdownPreview content={mergedPreview} paperId={paperId} />
+                  <NoteRenderer content={mergedPreview} paperId={paperId} />
                 </div>
               </div>
             </div>

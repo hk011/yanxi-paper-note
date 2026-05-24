@@ -1,16 +1,24 @@
-import { Component, memo, type ReactNode, useCallback, useState } from "react";
+import { Component, useCallback, useMemo, useState, type ReactNode } from "react";
 import { Modal } from "antd";
 import { XMarkdown } from "@ant-design/x-markdown";
 import Latex from "@ant-design/x-markdown/plugins/Latex";
 import "@ant-design/x-markdown/es/XMarkdown/index.css";
 import "katex/dist/katex.min.css";
 import MarkdownPreview from "./MarkdownPreview";
-import NoteImage from "./NoteImage";
+import GenNoteImage from "./GenNoteImage";
+import NoteSectionHeading from "./NoteSectionHeading";
+import { normalizeFigureRelPath } from "../utils/genFigure";
 
 interface Props {
   content: string;
   paperId: number;
   streaming?: boolean;
+  sectionActions?: boolean;
+  onAddSectionFigure?: (heading: string) => void;
+  onRefineSection?: (heading: string) => void;
+  sectionFigureLoadingHeading?: string | null;
+  onDeleteFigure?: (imagePath: string) => void | Promise<void>;
+  deletingFigurePath?: string | null;
 }
 
 class MarkdownErrorBoundary extends Component<
@@ -35,29 +43,17 @@ class MarkdownErrorBoundary extends Component<
   }
 }
 
-const NoteImageBlock = memo(function NoteImageBlock({
-  rawSrc,
+export default function NoteRenderer({
+  content,
   paperId,
-  eager,
-  onPreview,
-}: {
-  rawSrc: string;
-  paperId: number;
-  eager: boolean;
-  onPreview: (src: string) => void;
-}) {
-  return (
-    <NoteImage
-      rawSrc={rawSrc}
-      paperId={paperId}
-      eager={eager}
-      className="md-img-clickable"
-      onPreview={onPreview}
-    />
-  );
-});
-
-export default function NoteRenderer({ content, paperId, streaming }: Props) {
+  streaming,
+  sectionActions,
+  onAddSectionFigure,
+  onRefineSection,
+  sectionFigureLoadingHeading,
+  onDeleteFigure,
+  deletingFigurePath,
+}: Props) {
   const [preview, setPreview] = useState<string | null>(null);
   const handlePreview = useCallback((src: string) => setPreview(src), []);
 
@@ -65,16 +61,57 @@ export default function NoteRenderer({ content, paperId, streaming }: Props) {
     (props: Record<string, unknown>) => {
       const raw = typeof props.src === "string" ? props.src : "";
       if (!raw) return null;
+      const rel = normalizeFigureRelPath(raw);
       return (
-        <NoteImageBlock
+        <GenNoteImage
           rawSrc={raw}
           paperId={paperId}
           eager={!streaming}
           onPreview={handlePreview}
+          deletable={sectionActions && !streaming}
+          deleting={
+            deletingFigurePath != null &&
+            normalizeFigureRelPath(deletingFigurePath) === rel
+          }
+          onDelete={onDeleteFigure}
         />
       );
     },
-    [paperId, streaming, handlePreview]
+    [paperId, streaming, handlePreview, sectionActions, onDeleteFigure, deletingFigurePath]
+  );
+
+  const makeHeading = useCallback(
+    (level: 3 | 4) =>
+      function SectionHeadingComponent(props: Record<string, unknown>) {
+        return (
+          <NoteSectionHeading
+            level={level}
+            className={typeof props.className === "string" ? props.className : undefined}
+            id={typeof props.id === "string" ? props.id : undefined}
+            showActions={sectionActions}
+            onAddFigure={onAddSectionFigure}
+            onRefineSection={onRefineSection}
+            loadingHeading={sectionFigureLoadingHeading}
+          >
+            {props.children as ReactNode}
+          </NoteSectionHeading>
+        );
+      },
+    [sectionActions, onAddSectionFigure, onRefineSection, sectionFigureLoadingHeading]
+  );
+
+  const components = useMemo(
+    () => ({
+      img: renderImage,
+      h3: makeHeading(3),
+      h4: makeHeading(4),
+      table: (props: Record<string, unknown>) => (
+        <div className="table-scroll-wrap">
+          <table {...props} />
+        </div>
+      ),
+    }),
+    [renderImage, makeHeading]
   );
 
   return (
@@ -103,7 +140,7 @@ export default function NoteRenderer({ content, paperId, streaming }: Props) {
                 }
               : undefined
           }
-          components={{ img: renderImage }}
+          components={components}
         />
       </MarkdownErrorBoundary>
       <Modal

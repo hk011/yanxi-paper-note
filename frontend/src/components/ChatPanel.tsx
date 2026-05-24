@@ -6,7 +6,6 @@ import {
   CommentOutlined,
   CompressOutlined,
   HistoryOutlined,
-  EditOutlined,
   MergeCellsOutlined,
   PictureOutlined,
   PlusOutlined,
@@ -22,9 +21,7 @@ import {
   ChatSuggestion,
   ModelOption,
   subscribeChatStream,
-  subscribeNoteEditStream,
 } from "../api/client";
-import FixedSkillChip from "./FixedSkillChip";
 import ChatFeatureToggles from "./ChatFeatureToggles";
 import ChatImageAttachments from "./ChatImageAttachments";
 import ContextRing from "./ContextRing";
@@ -38,10 +35,6 @@ import { useStickToBottom } from "../hooks/useStickToBottom";
 import ScrollToBottomButton from "./ScrollToBottomButton";
 import type { StreamEvent, TimelineItem } from "../types/events";
 import { timelineFromAssistantMessage } from "../utils/messageTimeline";
-import {
-  assistantDisplayForNoteEdit,
-  extractNoteMarkdownFromAssistant,
-} from "../utils/noteEditMarkdown";
 import { collectGenFigurePreviews } from "../utils/figureOutput";
 
 const { Text } = Typography;
@@ -54,24 +47,11 @@ function chatConvKey(paperId: number) {
   return `yanxi:chat-conv:${paperId}`;
 }
 
-function noteEditConvKey(paperId: number) {
-  return `yanxi:note-edit-conv:${paperId}`;
-}
-
-export type ChatPanelMode = "qa" | "note_edit";
-
 interface Props {
   paperId: number;
   collapsed: boolean;
   onToggleCollapsed: () => void;
   enabled: boolean;
-  mode?: ChatPanelMode;
-  onExitNoteEdit?: () => void;
-  /** 打开笔记 diff 预览（由 PaperPage 展示 NoteDiffModal） */
-  onNoteEditRequestReview?: (
-    draft: string,
-    ctx: { conversationId: number; assistantMessageId?: number }
-  ) => void;
   onRefineTurn?: (
     assistantMessageId: number,
     conversationId: number,
@@ -85,22 +65,10 @@ interface UiMessage {
   id: string | number;
   role: "user" | "assistant";
   content: string;
-  /** AI 编辑模式下助手完整回复（含 markdown 代码块） */
-  rawContent?: string;
   attachments?: { path: string; name?: string; url?: string }[];
   references?: unknown[];
   thoughtTimeline?: TimelineItem[];
   streaming?: boolean;
-}
-
-function getLatestEditDraft(messages: UiMessage[]): string | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m.role !== "assistant" || m.streaming) continue;
-    const md = extractNoteMarkdownFromAssistant(m.rawContent || m.content);
-    if (md) return md;
-  }
-  return null;
 }
 
 function mapApiMessage(m: {
@@ -127,40 +95,15 @@ function mapApiMessage(m: {
   };
 }
 
-function mapNoteEditMessage(m: {
-  id: number;
-  role: string;
-  content: string;
-  reasoning_content?: string;
-  had_tool_call?: boolean;
-  references?: unknown[];
-  tool_trace?: unknown[];
-  attachments?: { path: string; name?: string; url?: string }[];
-}): UiMessage {
-  const base = mapApiMessage(m);
-  if (base.role === "assistant") {
-    return {
-      ...base,
-      rawContent: base.content,
-      content: assistantDisplayForNoteEdit(base.content),
-    };
-  }
-  return base;
-}
-
 export default function ChatPanel({
   paperId,
   collapsed,
   onToggleCollapsed,
   enabled,
-  mode = "qa",
-  onExitNoteEdit,
-  onNoteEditRequestReview,
   onRefineTurn,
   onRefineConversation,
   refining,
 }: Props) {
-  const isNoteEdit = mode === "note_edit";
   const [models, setModels] = useState<ModelOption[]>([]);
   const [model, setModel] = useState("");
   const [contextLimit, setContextLimit] = useState(256000);
@@ -184,7 +127,6 @@ export default function ChatPanel({
   const streamingIdRef = useRef<string | null>(null);
   const streamContentRef = useRef("");
   const timelineSnapshotRef = useRef<TimelineItem[]>([]);
-  const qaConversationIdRef = useRef<number | null>(null);
 
   const stream = useStreamEvents();
   const { handleEvent, reset: resetStream, timeline, content: streamContent } = stream;
@@ -211,20 +153,6 @@ export default function ChatPanel({
     setMessages((prev) =>
       prev.map((m) => {
         if (m.id !== streamingIdRef.current) return m;
-        if (isNoteEdit) {
-          const full = streamContent;
-          const display = assistantDisplayForNoteEdit(full);
-          return {
-            ...m,
-            rawContent: full,
-            content:
-              display ||
-              (full.includes("```") ? "正在生成修改后的笔记…" : full),
-            streaming: loading,
-            thoughtTimeline:
-              timeline.length > 0 ? timeline : m.thoughtTimeline,
-          };
-        }
         return {
           ...m,
           content: streamContent,
@@ -234,18 +162,14 @@ export default function ChatPanel({
         };
       })
     );
-  }, [streamContent, loading, timeline, isNoteEdit]);
+  }, [streamContent, loading, timeline]);
 
   const refreshConversation = useCallback(async (convId?: number | null) => {
     const id = convId ?? conversationId;
     if (id == null) return;
     try {
-      const conv = isNoteEdit
-        ? await api.getNoteEditConversation(paperId, id)
-        : await api.getChatConversation(paperId, id);
-      setMessages(
-        conv.messages.map(isNoteEdit ? mapNoteEditMessage : mapApiMessage)
-      );
+      const conv = await api.getChatConversation(paperId, id);
+      setMessages(conv.messages.map(mapApiMessage));
       const lastAssistant = [...conv.messages].reverse().find((m) => m.role === "assistant");
       if (lastAssistant) {
         setPromptTokens(
@@ -257,16 +181,10 @@ export default function ChatPanel({
     } catch {
       /* 刷新失败时保留当前界面状态 */
     }
-  }, [paperId, conversationId, isNoteEdit]);
+  }, [paperId, conversationId]);
 
   const loadConversations = useCallback(async () => {
     const list = await api.listChatConversations(paperId);
-    setConversations(list.items);
-    return list;
-  }, [paperId]);
-
-  const loadNoteEditConversations = useCallback(async () => {
-    const list = await api.listNoteEditConversations(paperId);
     setConversations(list.items);
     return list;
   }, [paperId]);
@@ -289,21 +207,6 @@ export default function ChatPanel({
       } else {
         setSuggestions([]);
       }
-    },
-    [loading, paperId, refreshConversation, resetStream]
-  );
-
-  const switchNoteEditConversation = useCallback(
-    async (convId: number) => {
-      if (loading) return;
-      abortRef.current?.();
-      setConversationId(convId);
-      localStorage.setItem(noteEditConvKey(paperId), String(convId));
-      setHistoryOpen(false);
-      resetStream();
-      setInput("");
-      setAttachments([]);
-      await refreshConversation(convId);
     },
     [loading, paperId, refreshConversation, resetStream]
   );
@@ -394,95 +297,13 @@ export default function ChatPanel({
     }
   }, [customModelSelected, enableSearch]);
 
-  const loadNoteEditBootstrap = useCallback(async () => {
-    setBootLoading(true);
-    try {
-      const [config, convList] = await Promise.all([
-        api.getChatConfig(paperId),
-        api.listNoteEditConversations(paperId),
-      ]);
-      setModels(config.models);
-      setContextLimit(config.context_limit);
-      setEnableSearch(false);
-      setConversations(convList.items);
-      setSuggestions([]);
-
-      const savedConv = localStorage.getItem(noteEditConvKey(paperId));
-      const savedConvId = savedConv ? Number(savedConv) : NaN;
-      const pickConvId =
-        (Number.isFinite(savedConvId) &&
-          convList.items.some((c) => c.id === savedConvId) &&
-          savedConvId) ||
-        convList.active_id ||
-        convList.items[0]?.id ||
-        null;
-
-      let convMessages: ReturnType<typeof mapNoteEditMessage>[] = [];
-      if (pickConvId == null) {
-        const created = await api.createNoteEditConversation(paperId);
-        setConversationId(created.id);
-        localStorage.setItem(noteEditConvKey(paperId), String(created.id));
-        convMessages = created.messages.map(mapNoteEditMessage);
-        const list = await api.listNoteEditConversations(paperId);
-        setConversations(list.items);
-      } else {
-        setConversationId(pickConvId);
-        const conv = await api.getNoteEditConversation(paperId, pickConvId);
-        convMessages = conv.messages.map(mapNoteEditMessage);
-        const lastAssistant = [...conv.messages]
-          .reverse()
-          .find((m) => m.role === "assistant");
-        if (lastAssistant) {
-          setPromptTokens(
-            (lastAssistant.prompt_tokens || 0) +
-              (lastAssistant.completion_tokens || 0)
-          );
-        }
-      }
-      setMessages(convMessages);
-
-      if (!modelInitializedRef.current) {
-        const saved = localStorage.getItem(chatModelKey(paperId));
-        const modelIds = config.models.map((m) => m.id);
-        let pickModel =
-          (saved && modelIds.includes(saved) && saved) || config.default_model;
-        if (pickConvId != null) {
-          const conv = await api.getNoteEditConversation(paperId, pickConvId);
-          const lastAssistant = [...conv.messages]
-            .reverse()
-            .find((m) => m.role === "assistant");
-          if (
-            lastAssistant?.model &&
-            modelIds.includes(lastAssistant.model)
-          ) {
-            pickModel = lastAssistant.model;
-          }
-        }
-        setModel(pickModel);
-        modelInitializedRef.current = true;
-      }
-    } catch (e) {
-      antMessage.error(e instanceof Error ? e.message : "进入 AI 编辑失败");
-      onExitNoteEdit?.();
-    } finally {
-      setBootLoading(false);
-    }
-  }, [paperId, onExitNoteEdit]);
-
   useEffect(() => {
     if (!enabled) return;
     modelInitializedRef.current = false;
     abortRef.current?.();
-    if (isNoteEdit) {
-      if (conversationId != null) {
-        qaConversationIdRef.current = conversationId;
-      }
-      void loadNoteEditBootstrap();
-    } else {
-      void loadBootstrap();
-    }
+    void loadBootstrap();
     return () => abortRef.current?.();
-  }, [enabled, isNoteEdit, loadBootstrap, loadNoteEditBootstrap, paperId]);
+  }, [enabled, loadBootstrap, paperId]);
 
   const handleBubbleScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
@@ -522,12 +343,9 @@ export default function ChatPanel({
           const partial = fullText.trim();
           return {
             ...m,
-            rawContent: isNoteEdit ? fullText : m.rawContent,
             content:
               partial.length > 0
-                ? isNoteEdit
-                  ? assistantDisplayForNoteEdit(fullText)
-                  : fullText
+                ? fullText
                 : aborted
                   ? "（已停止生成）"
                   : m.content,
@@ -538,7 +356,7 @@ export default function ChatPanel({
         })
       );
     },
-    [isNoteEdit]
+    []
   );
 
   const handleStopGeneration = useCallback(() => {
@@ -546,38 +364,6 @@ export default function ChatPanel({
     abortRef.current = null;
     finalizeActiveStream(true);
   }, [finalizeActiveStream]);
-
-  const handleExitNoteEdit = useCallback(() => {
-    handleStopGeneration();
-    onExitNoteEdit?.();
-  }, [handleStopGeneration, onExitNoteEdit]);
-
-  const handlePreviewEditDraft = useCallback(
-    (draft?: string | null) => {
-      const noteMd = draft ?? getLatestEditDraft(messages);
-      if (!noteMd) {
-        antMessage.warning(
-          "未解析到修改后的笔记，请让 AI 在 ```markdown 代码块中输出完整笔记"
-        );
-        return;
-      }
-      if (conversationId == null) {
-        antMessage.warning("编辑会话未就绪，请稍后重试");
-        return;
-      }
-      const lastAssistant = [...messages]
-        .reverse()
-        .find((m) => m.role === "assistant" && !m.streaming);
-      onNoteEditRequestReview?.(noteMd, {
-        conversationId,
-        assistantMessageId:
-          lastAssistant && typeof lastAssistant.id === "number"
-            ? lastAssistant.id
-            : undefined,
-      });
-    },
-    [messages, conversationId, onNoteEditRequestReview]
-  );
 
   const handleStreamEvent = useCallback(
     (ev: StreamEvent) => {
@@ -647,18 +433,20 @@ export default function ChatPanel({
       conversation_id: conversationId,
       model,
       enable_thinking: enableThinking,
-      enable_search: isNoteEdit ? false : enableSearch,
+      enable_search: enableSearch,
       attachments: pendingAttachments.map(({ path, name }) => ({ path, name: name || "" })),
     };
     const onStreamDone = () => {
       finalizeActiveStream(false);
       void refreshConversation(conversationId);
-      if (isNoteEdit) void loadNoteEditConversations();
-      else void loadConversations();
+      void loadConversations();
     };
-    abortRef.current = isNoteEdit
-      ? subscribeNoteEditStream(paperId, streamPayload, handleStreamEvent, onStreamDone)
-      : subscribeChatStream(paperId, streamPayload, handleStreamEvent, onStreamDone);
+    abortRef.current = subscribeChatStream(
+      paperId,
+      streamPayload,
+      handleStreamEvent,
+      onStreamDone
+    );
   };
 
   const handleNewConversation = async () => {
@@ -679,25 +467,6 @@ export default function ChatPanel({
       setHistoryOpen(false);
     } catch (e) {
       antMessage.error(e instanceof Error ? e.message : "无法开启新对话");
-    }
-  };
-
-  const handleNewNoteEditSession = async () => {
-    if (loading) return;
-    try {
-      abortRef.current?.();
-      const created = await api.createNoteEditConversation(paperId);
-      setConversationId(created.id);
-      localStorage.setItem(noteEditConvKey(paperId), String(created.id));
-      setMessages(created.messages.map(mapNoteEditMessage));
-      setPromptTokens(0);
-      setInput("");
-      setAttachments([]);
-      resetStream();
-      await loadNoteEditConversations();
-      setHistoryOpen(false);
-    } catch (e) {
-      antMessage.error(e instanceof Error ? e.message : "无法开启新编辑");
     }
   };
 
@@ -746,11 +515,9 @@ export default function ChatPanel({
     .reverse()
     .find((m) => m.role === "assistant" && !m.streaming)?.id;
   const showRefineEntry =
-    !isNoteEdit &&
     Boolean(onRefineConversation) &&
     hasAssistantReply &&
     conversationId != null;
-  const pendingEditDraft = isNoteEdit ? getLatestEditDraft(messages) : null;
 
   if (collapsed) {
     return <DraggableChatFab onClick={onToggleCollapsed} />;
@@ -761,28 +528,26 @@ export default function ChatPanel({
       <div className="chat-panel-header">
         <div className="chat-panel-header-main">
           <YanxiLogo size={20} variant="sm" className="chat-panel-logo" />
-          <span>{isNoteEdit ? "AI 编辑笔记" : "AI 助手"}</span>
+          <span>论文问答</span>
         </div>
         <div className="chat-panel-header-actions">
           <button
             type="button"
             className="chat-history-btn"
             onClick={() => setHistoryOpen((v) => !v)}
-            title={isNoteEdit ? "编辑历史" : "历史会话"}
-            aria-label={isNoteEdit ? "编辑历史" : "历史会话"}
+            title="历史会话"
+            aria-label="历史会话"
           >
             <HistoryOutlined />
           </button>
           <button
             type="button"
             className="chat-new-conversation-btn"
-            onClick={() =>
-              void (isNoteEdit ? handleNewNoteEditSession() : handleNewConversation())
-            }
+            onClick={() => void handleNewConversation()}
             disabled={loading}
           >
             <PlusOutlined />
-            {isNoteEdit ? "新编辑" : "新对话"}
+            新对话
           </button>
           <button
             type="button"
@@ -800,7 +565,7 @@ export default function ChatPanel({
         <div className="chat-history-panel">
           {conversations.length === 0 ? (
             <Text type="secondary" className="chat-history-empty">
-              {isNoteEdit ? "暂无编辑历史" : "暂无历史会话"}
+              暂无历史会话
             </Text>
           ) : (
             conversations.map((conv) => (
@@ -810,11 +575,7 @@ export default function ChatPanel({
                 className={`chat-history-item${
                   conv.id === conversationId ? " chat-history-item--active" : ""
                 }`}
-                onClick={() =>
-                  void (isNoteEdit
-                    ? switchNoteEditConversation(conv.id)
-                    : switchConversation(conv.id))
-                }
+                onClick={() => void switchConversation(conv.id)}
               >
                 <span className="chat-history-item-title">{conv.title}</span>
                 <span className="chat-history-item-meta">
@@ -837,12 +598,8 @@ export default function ChatPanel({
             <Welcome
               className="chat-welcome"
               icon={<YanxiLogo size={32} />}
-              title={isNoteEdit ? "AI 编辑笔记" : "论文解读助手"}
-              description={
-                isNoteEdit
-                  ? "描述你想如何修改当前解读笔记。生成修改稿后可「查看修改对比」逐块审阅再应用；本对话不会参与「融入笔记」。"
-                  : "基于当前解读笔记与论文原文，解答你的疑问。可开启深度思考与联网搜索。"
-              }
+              title="论文问答"
+              description="针对论文和解读笔记提问、讨论。可在小节标题旁添加配图。"
             />
             {promptItems.length > 0 && (
               <Prompts
@@ -887,15 +644,6 @@ export default function ChatPanel({
                 m.role === "assistant"
                   ? collectGenFigurePreviews(thoughtItems, paperId)
                   : [];
-              const editDraftReady =
-                isNoteEdit && m.role === "assistant"
-                  ? extractNoteMarkdownFromAssistant(m.rawContent || m.content)
-                  : null;
-              const generatingNoteBody =
-                isNoteEdit &&
-                isStreamingAssistant &&
-                !editDraftReady &&
-                Boolean((m.rawContent || m.content).match(/```(?:markdown|md)?/i));
 
               return {
                 key: String(m.id),
@@ -933,11 +681,7 @@ export default function ChatPanel({
                   bubbleRole === "ai" ? (
                     showAnswer ? (
                       <MarkdownPreview
-                        content={
-                          generatingNoteBody
-                            ? "正在生成完整笔记，完成后可「查看修改对比」…"
-                            : String(content || "").trim()
-                        }
+                        content={String(content || "").trim()}
                         paperId={paperId}
                         className="chat-markdown"
                       />
@@ -984,26 +728,7 @@ export default function ChatPanel({
                           ))}
                         </div>
                       ) : null}
-                      {isNoteEdit &&
-                      extractNoteMarkdownFromAssistant(m.rawContent || m.content) ? (
-                        <button
-                          type="button"
-                          className="chat-refine-turn-btn"
-                          disabled={loading}
-                          onClick={() =>
-                            handlePreviewEditDraft(
-                              extractNoteMarkdownFromAssistant(
-                                m.rawContent || m.content
-                              )
-                            )
-                          }
-                        >
-                          <EditOutlined />
-                          查看修改对比
-                        </button>
-                      ) : null}
-                      {!isNoteEdit &&
-                      onRefineTurn &&
+                      {onRefineTurn &&
                       typeof m.id === "number" &&
                       m.content.trim() ? (
                         <button
@@ -1075,21 +800,6 @@ export default function ChatPanel({
       </div>
 
       <div className="chat-panel-footer">
-        {isNoteEdit && !bootLoading && pendingEditDraft && (
-          <div className="chat-note-edit-actions">
-            <Text type="secondary" className="chat-note-edit-pending-hint">
-              已生成可审阅的修改稿
-            </Text>
-            <button
-              type="button"
-              className="chat-note-edit-complete-btn"
-              disabled={loading}
-              onClick={() => handlePreviewEditDraft(pendingEditDraft)}
-            >
-              预览并应用修改
-            </button>
-          </div>
-        )}
         {showRefineEntry && !bootLoading && messages.length > 0 && (
           <button
             type="button"
@@ -1134,7 +844,7 @@ export default function ChatPanel({
             onChange={setInput}
             loading={loading}
             autoSize={{ minRows: 1, maxRows: 6 }}
-            placeholder={isNoteEdit ? "描述要如何修改笔记…" : "添加追问…"}
+            placeholder="添加追问…"
             onSubmit={() => void handleSend()}
             onCancel={handleStopGeneration}
             onPasteFile={(files) => {
@@ -1152,16 +862,6 @@ export default function ChatPanel({
             suffix={false}
             footer={(_, { components }) => (
               <div className="chat-composer-footer">
-                {isNoteEdit ? (
-                  <div className="chat-composer-skill-row">
-                    <FixedSkillChip
-                      icon={<EditOutlined />}
-                      label="笔记编辑"
-                      onClose={handleExitNoteEdit}
-                      closeLabel="退出 AI 编辑"
-                    />
-                  </div>
-                ) : null}
                 <div className="chat-composer-footer-row">
                 <div className="chat-composer-footer-left">
                   {models.length > 0 ? (
@@ -1172,29 +872,16 @@ export default function ChatPanel({
                       disabled={loading}
                     />
                   ) : null}
-                  {!isNoteEdit ? (
-                    <ChatFeatureToggles
-                      compact
-                      enableThinking={enableThinking}
-                      enableSearch={enableSearch}
-                      onThinkingChange={setEnableThinking}
-                      onSearchChange={setEnableSearch}
-                      disabled={loading}
-                      searchDisabled={customModelSelected}
-                      searchDisabledReason="自定义模型不支持联网搜索"
-                    />
-                  ) : (
-                    <ChatFeatureToggles
-                      compact
-                      enableThinking={enableThinking}
-                      enableSearch={false}
-                      onThinkingChange={setEnableThinking}
-                      onSearchChange={() => {}}
-                      disabled={loading}
-                      searchDisabled
-                      searchDisabledReason="编辑模式不支持联网"
-                    />
-                  )}
+                  <ChatFeatureToggles
+                    compact
+                    enableThinking={enableThinking}
+                    enableSearch={enableSearch}
+                    onThinkingChange={setEnableThinking}
+                    onSearchChange={setEnableSearch}
+                    disabled={loading}
+                    searchDisabled={customModelSelected}
+                    searchDisabledReason="自定义模型不支持联网搜索"
+                  />
                 </div>
                 <div className="chat-composer-footer-right">
                   <ContextRing
@@ -1203,27 +890,25 @@ export default function ChatPanel({
                     limit={contextLimit}
                     size={18}
                   />
-                  {!isNoteEdit ? (
-                    <Tooltip title="添加图片">
-                      <button
-                        type="button"
-                        className="chat-composer-icon-btn"
-                        onClick={() => {
-                          const inputEl = document.createElement("input");
-                          inputEl.type = "file";
-                          inputEl.accept = "image/*";
-                          inputEl.onchange = () => {
-                            const file = inputEl.files?.[0];
-                            if (file) void handlePasteFile(file);
-                          };
-                          inputEl.click();
-                        }}
-                        aria-label="添加图片"
-                      >
-                        <PictureOutlined />
-                      </button>
-                    </Tooltip>
-                  ) : null}
+                  <Tooltip title="添加图片">
+                    <button
+                      type="button"
+                      className="chat-composer-icon-btn"
+                      onClick={() => {
+                        const inputEl = document.createElement("input");
+                        inputEl.type = "file";
+                        inputEl.accept = "image/*";
+                        inputEl.onchange = () => {
+                          const file = inputEl.files?.[0];
+                          if (file) void handlePasteFile(file);
+                        };
+                        inputEl.click();
+                      }}
+                      aria-label="添加图片"
+                    >
+                      <PictureOutlined />
+                    </button>
+                  </Tooltip>
                   {loading ? (
                     <Tooltip title="停止生成">
                       <button

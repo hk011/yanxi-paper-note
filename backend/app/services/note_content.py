@@ -126,8 +126,13 @@ def prepare_note_content_for_save(
     session: Session | None = None,
     conversation_id: int | None = None,
     assistant_message_id: int | None = None,
+    auto_insert_orphans: bool = False,
 ) -> str:
+    """规范化图片路径；可选将未引用的 gen 配图追加到文末（仅 repair 等兜底场景）。"""
     text = normalize_note_image_refs(content, paper_id)
+
+    if not auto_insert_orphans:
+        return text
 
     figure_paths: list[str] = []
     if session and conversation_id is not None:
@@ -136,8 +141,8 @@ def prepare_note_content_for_save(
             q = q.where(Message.id <= assistant_message_id)
         msgs = session.exec(q.order_by(Message.created_at.asc())).all()
         figure_paths.extend(collect_gen_figure_paths_from_messages(list(msgs)))
-        figure_paths.extend(list_unreferenced_gen_assets(data_dir, text))
-    # 去重保序
+    figure_paths.extend(list_unreferenced_gen_assets(data_dir, text))
+
     seen: set[str] = set()
     unique_paths: list[str] = []
     for p in figure_paths:

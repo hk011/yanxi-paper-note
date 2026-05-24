@@ -21,7 +21,24 @@ GEN_FIGURE_OPENAI_TOOL = {
         "parameters": {
             "type": "object",
             "properties": {
-                "prompt": {"type": "string", "description": "Seedream 结构化中文提示"},
+                "prompt": {
+                    "type": "string",
+                    "description": "按模板组装的完整中文 Seedream 提示，勿超过约 300 汉字",
+                },
+                "figure_kind": {
+                    "type": "string",
+                    "enum": [
+                        "infographic",
+                        "architecture",
+                        "flow",
+                        "comparison",
+                        "mechanism",
+                        "roadmap",
+                        "pipeline",
+                        "timeline",
+                        "equation_board",
+                    ],
+                },
                 "ref_image_path": {
                     "type": "string",
                     "description": "论文相关原图路径（images/xxx.jpg）",

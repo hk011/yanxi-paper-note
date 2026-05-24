@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, chat, models, note_edit, papers, users
+from app.api import auth, chat, models, papers, users
 from app.db.session import init_db
 
 
@@ -28,7 +28,6 @@ app.include_router(users.router)
 app.include_router(models.router)
 app.include_router(papers.router)
 app.include_router(chat.router)
-app.include_router(note_edit.router)
 
 
 @app.get("/api/health")

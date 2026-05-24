@@ -22,9 +22,24 @@ GEN_FIGURE_TOOL = {
             "prompt": {
                 "type": "string",
                 "description": (
-                    "Seedream 结构化中文提示：图类型+模块/步骤+连接关系+布局+风格+引号内文字标签。"
-                    "例：学术信息图，三阶段训练 Pipeline，横向流程，白底扁平矢量，标签为「预训练」「微调」「评测」"
+                    "按模板组装的完整中文提示：图的类型+展示内容+布局+风格+引号内标签+参考知识。"
+                    "勿超过约 300 汉字。"
                 ),
+            },
+            "figure_kind": {
+                "type": "string",
+                "description": "可选，帮助系统选择宽高比",
+                "enum": [
+                    "infographic",
+                    "architecture",
+                    "flow",
+                    "comparison",
+                    "mechanism",
+                    "roadmap",
+                    "pipeline",
+                    "timeline",
+                    "equation_board",
+                ],
             },
             "ref_image_path": {
                 "type": "string",

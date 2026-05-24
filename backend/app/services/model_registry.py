@@ -122,7 +122,7 @@ def resolve_model(session: Session, user_id: int, model_key: str) -> ModelEndpoi
 
 
 def model_label(session: Session, user_id: int, stored_model: str) -> str:
-    key = (stored_model or "").strip()
+    key = extract_llm_model_key(stored_model)
     if not key:
         return ""
     if key.startswith(CUSTOM_PREFIX):
@@ -131,3 +131,84 @@ def model_label(session: Session, user_id: int, stored_model: str) -> str:
         except ValueError:
             return key
     return key
+
+
+# 笔记保存时写入的「操作标记」，不是 LLM 模型 id，不应展示为「由 xxx 生成」
+_INTERNAL_NOTE_MODELS = frozenset(
+    {
+        "manual",
+        "refine",
+        "delete_figure",
+        "section_figure",
+        "unknown",
+    }
+)
+
+
+def is_internal_note_model(model: str) -> bool:
+    key = (model or "").strip()
+    if not key:
+        return True
+    if key in _INTERNAL_NOTE_MODELS:
+        return True
+    if key.startswith("restore_v"):
+        return True
+    return False
+
+
+def extract_llm_model_key(model: str) -> str:
+    """从 note.model 取出可展示的 LLM 模型 id。"""
+    key = (model or "").strip()
+    if key.startswith("section_refine:"):
+        key = key.split(":", 1)[1].strip()
+    if is_internal_note_model(key):
+        return ""
+    return key
+
+
+def resolve_note_model_on_save(
+    new_model: str,
+    existing_model: str,
+    *,
+    session: Session | None = None,
+    paper_id: int | None = None,
+) -> str:
+    """保存笔记时：仅在新值为真实模型 id 时更新，否则保留原生成模型。"""
+    resolved = extract_llm_model_key(new_model)
+    if resolved:
+        return resolved
+    existing = extract_llm_model_key(existing_model)
+    if existing:
+        return existing
+    if session is not None and paper_id is not None:
+        from app.db.models import Note
+
+        rows = session.exec(
+            select(Note)
+            .where(Note.paper_id == paper_id)
+            .order_by(Note.version.desc())
+        ).all()
+        for row in rows:
+            key = extract_llm_model_key(row.model)
+            if key:
+                return key
+    return (existing_model or "").strip()
+
+
+def paper_note_model_label(
+    session: Session, user_id: int, paper_id: int, stored_model: str
+) -> str:
+    """笔记顶栏展示用：跳过内部操作标记，必要时从历史版本记录找回模型名。"""
+    label = model_label(session, user_id, stored_model)
+    if label:
+        return label
+    from app.db.models import Note
+
+    rows = session.exec(
+        select(Note).where(Note.paper_id == paper_id).order_by(Note.version.desc())
+    ).all()
+    for row in rows:
+        key = extract_llm_model_key(row.model)
+        if key:
+            return model_label(session, user_id, key)
+    return ""

@@ -14,13 +14,18 @@ interface Props {
 }
 
 function isAbsoluteUrl(src: string): boolean {
-  return /^(https?:|data:|blob:|\/api\/)/i.test(src) || src.startsWith("/");
+  if (/^(https?:|data:|blob:|\/api\/)/i.test(src)) return true;
+  if (/^\/(assets|images)\//i.test(src)) return false;
+  return src.startsWith("/");
 }
 
 function resolveImageUrl(raw: string, paperId?: number): string {
   if (!raw) return raw;
+  const normalized = raw.replace(/^\/+/, "");
   if (raw.startsWith("/api/")) return buildAuthenticatedUrl(raw);
-  if (paperId != null && !isAbsoluteUrl(raw)) return buildPaperFileUrl(paperId, raw);
+  if (paperId != null && !isAbsoluteUrl(raw)) {
+    return buildPaperFileUrl(paperId, normalized);
+  }
   return raw;
 }
 
@@ -36,6 +41,11 @@ export default function MarkdownPreview({
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeRaw, rehypeKatex]}
         components={{
+          table: ({ children, ...rest }) => (
+            <div className="table-scroll-wrap">
+              <table {...rest}>{children}</table>
+            </div>
+          ),
           img: ({ src, alt, ...rest }) => {
             const raw = typeof src === "string" ? src : "";
             const finalSrc = resolveImageUrl(raw, paperId);

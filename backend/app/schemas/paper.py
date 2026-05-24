@@ -48,6 +48,23 @@ class NoteRefineApplyBody(BaseModel):
     assistant_message_id: int | None = None
 
 
+class NoteSectionAddFigureBody(BaseModel):
+    heading: str
+    instruction: str = ""
+
+
+class NoteDeleteFigureBody(BaseModel):
+    image_path: str
+
+
+class NoteSectionRefineBody(BaseModel):
+    heading: str
+    instruction: str
+    model: str = ""
+    enable_thinking: bool = True
+    enable_search: bool = False
+
+
 class NoteVersionSummary(BaseModel):
     version: int
     model: str = ""

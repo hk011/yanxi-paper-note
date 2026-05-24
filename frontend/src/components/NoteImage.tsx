@@ -5,6 +5,9 @@ function resolveImageUrl(raw: string, paperId: number): string {
   if (!raw) return raw;
   if (raw.startsWith("/api/")) return buildAuthenticatedUrl(raw);
   if (/^(https?:|data:|blob:)/i.test(raw)) return raw;
+  if (/^\/(assets|images)\//i.test(raw)) {
+    return buildPaperFileUrl(paperId, raw.replace(/^\/+/, ""));
+  }
   if (raw.startsWith("/")) return buildAuthenticatedUrl(raw);
   return buildPaperFileUrl(paperId, raw);
 }

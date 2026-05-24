@@ -185,6 +185,14 @@ export interface NoteRefinePayload {
   model?: string;
 }
 
+export interface NoteSectionRefinePayload {
+  heading: string;
+  instruction: string;
+  model?: string;
+  enable_thinking?: boolean;
+  enable_search?: boolean;
+}
+
 export const api = {
   register: (username: string, password: string) =>
     request<AuthResult>("/api/auth/register", {
@@ -363,27 +371,30 @@ export const api = {
       }
     ),
 
-  repairNoteGenFigures: (id: number) =>
-    request<{
-      ok: boolean;
-      repaired: boolean;
-      note_version?: number;
-      figures?: string[];
-      message?: string;
-    }>(`/api/papers/${id}/note/repair-gen-figures`, { method: "POST" }),
-
-  listNoteEditConversations: (id: number) =>
-    request<{ items: ChatConversationSummary[]; active_id: number | null }>(
-      `/api/papers/${id}/note-edit/conversations`
+  addSectionFigure: (
+    id: number,
+    heading: string,
+    instruction?: string
+  ) =>
+    request<{ ok: boolean; note_version: number; image_path: string; heading: string }>(
+      `/api/papers/${id}/note/sections/add-figure`,
+      {
+        method: "POST",
+        body: JSON.stringify({ heading, instruction: instruction || "" }),
+      }
     ),
 
-  createNoteEditConversation: (id: number) =>
-    request<ChatConversation>(`/api/papers/${id}/note-edit/conversations`, {
+  deleteNoteFigure: (id: number, imagePath: string) =>
+    request<{
+      ok: boolean;
+      note_version: number;
+      image_path: string;
+      file_deleted: boolean;
+      remaining_refs: number;
+    }>(`/api/papers/${id}/note/figures/delete`, {
       method: "POST",
+      body: JSON.stringify({ image_path: imagePath }),
     }),
-
-  getNoteEditConversation: (id: number, conversationId: number) =>
-    request<ChatConversation>(`/api/papers/${id}/note-edit/conversations/${conversationId}`),
 
   uploadChatImage: async (id: number, file: File) => {
     const form = new FormData();
@@ -550,64 +561,6 @@ export function subscribeChatStream(
   return () => controller.abort();
 }
 
-export function subscribeNoteEditStream(
-  paperId: number,
-  payload: ChatSendPayload,
-  onEvent: StreamHandler,
-  onDone?: () => void
-): () => void {
-  const token = getToken();
-  const controller = new AbortController();
-
-  (async () => {
-    try {
-      const res = await fetch(`/api/papers/${paperId}/note-edit/messages`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-      if (!res.ok || !res.body) {
-        onEvent({ type: "status", status: "failed", error: "请求失败" });
-        return;
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split("\n\n");
-        buffer = parts.pop() || "";
-        for (const part of parts) {
-          const line = part.trim();
-          if (!line.startsWith("data:")) continue;
-          try {
-            const data = JSON.parse(line.slice(5).trim()) as StreamEvent;
-            onEvent(data);
-          } catch {
-            /* ignore */
-          }
-        }
-      }
-    } catch (e) {
-      if (!(e instanceof DOMException && e.name === "AbortError")) {
-        onEvent({ type: "status", status: "failed", error: "连接中断" });
-      }
-    } finally {
-      onDone?.();
-    }
-  })();
-
-  return () => controller.abort();
-}
-
 export function subscribeNoteRefineStream(
   paperId: number,
   payload: NoteRefinePayload,
@@ -654,6 +607,66 @@ export function subscribeNoteRefineStream(
           /* ignore */
         }
       }
+    }
+  })();
+
+  return () => controller.abort();
+}
+
+export function subscribeSectionRefineStream(
+  paperId: number,
+  payload: NoteSectionRefinePayload,
+  onEvent: StreamHandler,
+  onDone?: () => void
+): () => void {
+  const token = getToken();
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const res = await fetch(`/api/papers/${paperId}/note/sections/refine`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      if (!res.ok || !res.body) {
+        onEvent({ type: "status", status: "failed", error: "润色请求失败" });
+        onDone?.();
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() || "";
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith("data:")) continue;
+          try {
+            const data = JSON.parse(line.slice(5).trim()) as StreamEvent;
+            onEvent(data);
+            if (data.type === "done") onDone?.();
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    } catch (e) {
+      if (!(e instanceof DOMException && e.name === "AbortError")) {
+        onEvent({ type: "status", status: "failed", error: "连接中断" });
+      }
+    } finally {
+      onDone?.();
     }
   })();
 

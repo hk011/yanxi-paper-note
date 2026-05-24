@@ -13,6 +13,10 @@ async def generate_figure(
     prompt: str,
     output_dir: Path,
     ref_image_path: str | None = None,
+    *,
+    filename: str | None = None,
+    rel_path: str | None = None,
+    size: str | None = None,
 ) -> dict:
     """调用 Seedream API 生成说明图，落盘并返回本地访问路径。"""
     settings = get_settings()
@@ -22,7 +26,7 @@ async def generate_figure(
     body: dict = {
         "model": settings.ark_image_gen_model,
         "prompt": final_prompt,
-        "size": "2K",
+        "size": size or "2560x1440",
         "response_format": "url",
         "watermark": False,
     }
@@ -60,13 +64,15 @@ async def generate_figure(
         img_resp.raise_for_status()
         content = img_resp.content
 
-    idx = len(list(output_dir.glob("gen_*.png"))) + 1
-    filename = f"gen_{idx:03d}.png"
+    if filename is None:
+        idx = len(list(output_dir.glob("gen_*.png"))) + 1
+        filename = f"gen_{idx:03d}.png"
     dest = output_dir / filename
     dest.write_bytes(content)
 
+    rel = rel_path or f"assets/{filename}"
     return {
-        "url": f"assets/{filename}",
+        "url": rel,
         "local_path": str(dest),
         "prompt": final_prompt,
         "remote_url": image_url,

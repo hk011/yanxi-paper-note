@@ -29,6 +29,7 @@ from app.services.content_builder import (
 from app.services.llm import run_with_tool_loop as llm_run_with_tool_loop
 from app.services.model_registry import ModelEndpoint, resolve_model
 from app.services.mineru import paper_data_dir
+from app.services.figure_prompt import resolve_figure_size_for_kind
 from app.services.tools.image_gen import format_tool_output, generate_figure
 
 SECTION_CONCURRENCY = 4
@@ -225,7 +226,13 @@ async def _run_note_pipeline_body(
         ref = args.get("ref_image_path")
         if ref and not Path(ref).is_absolute():
             ref = str(mineru_dir / ref)
-        result = await generate_figure(prompt, assets_dir, ref)
+        size = resolve_figure_size_for_kind(
+            args.get("figure_kind"),
+            section_body=prompt,
+        )
+        result = await generate_figure(
+            prompt, assets_dir, ref, size=size
+        )
         with Session(engine) as session:
             session.add(
                 Asset(

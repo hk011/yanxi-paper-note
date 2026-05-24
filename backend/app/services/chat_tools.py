@@ -10,6 +10,7 @@ from sqlmodel import Session
 from app.db.models import Asset
 from app.db.session import get_engine
 from app.services.mineru import paper_data_dir
+from app.services.figure_prompt import resolve_figure_size_for_kind
 from app.services.tools.image_gen import format_tool_output, generate_figure
 
 
@@ -27,7 +28,13 @@ def make_gen_figure_tool_handler(paper_id: int, user_id: int):
         ref = args.get("ref_image_path")
         if ref and not Path(ref).is_absolute():
             ref = str(mineru_dir / ref)
-        result = await generate_figure(prompt, assets_dir, ref)
+        size = resolve_figure_size_for_kind(
+            args.get("figure_kind"),
+            section_body=prompt,
+        )
+        result = await generate_figure(
+            prompt, assets_dir, ref, size=size
+        )
         engine = get_engine()
         with Session(engine) as session:
             session.add(

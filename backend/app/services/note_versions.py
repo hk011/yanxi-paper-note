@@ -21,7 +21,7 @@ def list_note_versions(session: Session, paper_id: int, user_id: int) -> list[di
     rows = session.exec(
         select(Note)
         .where(Note.paper_id == paper_id)
-        .order_by(Note.version.asc())
+        .order_by(Note.version.desc())
     ).all()
     if not rows:
         note_path = data_dir / "note.md"
