@@ -21,6 +21,73 @@ interface Props {
   deletingFigurePath?: string | null;
 }
 
+const MARKDOWN_CONFIG = { extensions: Latex() };
+
+const STREAMING_CONFIG = {
+  hasNextChunk: true as const,
+  enableAnimation: false as const,
+  tail: { content: "▋" },
+  incompleteMarkdownComponentMap: {
+    link: "incomplete-link",
+    image: "incomplete-image",
+    table: "incomplete-table",
+  },
+};
+
+function decodeStreamRaw(raw: unknown): string {
+  if (typeof raw !== "string" || !raw) return "";
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function TableWrapper(props: Record<string, unknown>) {
+  return (
+    <div className="table-scroll-wrap">
+      <table {...props} />
+    </div>
+  );
+}
+
+function IncompleteLink(props: Record<string, unknown>) {
+  const pending = decodeStreamRaw(props["data-raw"]);
+  return (
+    <span className="xmd-incomplete xmd-incomplete--link" aria-busy="true">
+      {pending || "链接输入中…"}
+    </span>
+  );
+}
+
+function IncompleteImage(_props: Record<string, unknown>) {
+  return (
+    <span className="xmd-incomplete xmd-incomplete--image" aria-busy="true">
+      <span className="xmd-incomplete__block" />
+    </span>
+  );
+}
+
+function IncompleteTable(props: Record<string, unknown>) {
+  const pending = decodeStreamRaw(props["data-raw"]);
+  const rows = pending ? pending.split("\n").filter(Boolean).length : 1;
+  return (
+    <div className="xmd-incomplete xmd-incomplete--table table-scroll-wrap" aria-busy="true">
+      <div
+        className="xmd-incomplete__table-grid"
+        style={{ gridTemplateRows: `repeat(${Math.min(rows + 1, 4)}, 2rem)` }}
+      />
+    </div>
+  );
+}
+
+const STATIC_COMPONENTS = {
+  table: TableWrapper,
+  "incomplete-link": IncompleteLink,
+  "incomplete-image": IncompleteImage,
+  "incomplete-table": IncompleteTable,
+};
+
 class MarkdownErrorBoundary extends Component<
   { children: ReactNode; fallback: ReactNode; resetKey: string },
   { hasError: boolean }
@@ -66,7 +133,8 @@ export default function NoteRenderer({
         <GenNoteImage
           rawSrc={raw}
           paperId={paperId}
-          eager={!streaming}
+          eager
+          useDirectSrc
           onPreview={handlePreview}
           deletable={sectionActions && !streaming}
           deleting={
@@ -102,14 +170,10 @@ export default function NoteRenderer({
 
   const components = useMemo(
     () => ({
+      ...STATIC_COMPONENTS,
       img: renderImage,
       h3: makeHeading(3),
       h4: makeHeading(4),
-      table: (props: Record<string, unknown>) => (
-        <div className="table-scroll-wrap">
-          <table {...props} />
-        </div>
-      ),
     }),
     [renderImage, makeHeading]
   );
@@ -130,16 +194,8 @@ export default function NoteRenderer({
           content={content}
           rootClassName="markdown-body"
           openLinksInNewTab
-          config={{ extensions: Latex() }}
-          streaming={
-            streaming
-              ? {
-                  hasNextChunk: true,
-                  enableAnimation: false,
-                  tail: { content: "▋" },
-                }
-              : undefined
-          }
+          config={MARKDOWN_CONFIG}
+          streaming={streaming ? STREAMING_CONFIG : undefined}
           components={components}
         />
       </MarkdownErrorBoundary>

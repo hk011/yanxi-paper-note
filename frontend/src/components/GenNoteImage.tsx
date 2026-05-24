@@ -1,6 +1,6 @@
 import { DeleteOutlined, WarningOutlined } from "@ant-design/icons";
 import { Button, Popconfirm, Tooltip } from "antd";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import NoteImage from "./NoteImage";
 import { isGenFigurePath, normalizeFigureRelPath } from "../utils/genFigure";
 
@@ -8,16 +8,18 @@ interface Props {
   rawSrc: string;
   paperId: number;
   eager: boolean;
+  useDirectSrc?: boolean;
   onPreview: (src: string) => void;
   deletable?: boolean;
   deleting?: boolean;
   onDelete?: (imagePath: string) => void;
 }
 
-export default function GenNoteImage({
+function GenNoteImage({
   rawSrc,
   paperId,
   eager,
+  useDirectSrc,
   onPreview,
   deletable,
   deleting,
@@ -59,6 +61,7 @@ export default function GenNoteImage({
         rawSrc={rawSrc}
         paperId={paperId}
         eager={eager}
+        useDirectSrc={useDirectSrc}
         className="md-img-clickable"
         onPreview={onPreview}
         onLoadError={() => setBroken(true)}
@@ -88,3 +91,14 @@ export default function GenNoteImage({
     </span>
   );
 }
+
+export default memo(
+  GenNoteImage,
+  (prev, next) =>
+    prev.rawSrc === next.rawSrc &&
+    prev.paperId === next.paperId &&
+    prev.eager === next.eager &&
+    prev.useDirectSrc === next.useDirectSrc &&
+    prev.deletable === next.deletable &&
+    prev.deleting === next.deleting
+);

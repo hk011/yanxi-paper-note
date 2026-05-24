@@ -1362,6 +1362,11 @@ table.task-table td:nth-child(5) {
   background: #fafbfc;
 }
 
+.note-renderer--streaming .note-gen-figure-wrap img {
+  min-height: unset;
+  background: transparent;
+}
+
 /* 图片与图注：同段或相邻段均居中、图注在图下方 */
 .markdown-body p:has(.note-gen-figure-wrap),
 .markdown-body p:has(> img:only-child),
@@ -1757,16 +1762,6 @@ table.task-table td:nth-child(5) {
   margin: 0 0 16px;
 }
 
-.note-renderer--streaming .x-markdown,
-.note-renderer--streaming .markdown-body {
-  contain: layout style;
-}
-
-.note-renderer--streaming img {
-  min-height: 48px;
-  background: #f7f8fa;
-}
-
 .note-renderer--streaming .stream-cursor {
   display: inline-block;
   color: #1677ff;
@@ -1777,6 +1772,69 @@ table.task-table td:nth-child(5) {
 @keyframes blink {
   50% {
     opacity: 0;
+  }
+}
+
+.xmd-incomplete {
+  display: inline-block;
+  color: #8c8c8c;
+  font-size: 0.9em;
+  vertical-align: middle;
+}
+
+.xmd-incomplete--link {
+  opacity: 0.72;
+}
+
+.xmd-incomplete--image {
+  display: block;
+  width: min(100%, 420px);
+  margin: 0.6em auto;
+}
+
+.xmd-incomplete__block {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 240px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #f5f6f8 25%, #eceef2 50%, #f5f6f8 75%);
+  background-size: 200% 100%;
+  animation: xmd-shimmer 1.2s ease-in-out infinite;
+}
+
+.xmd-incomplete--table {
+  width: 100%;
+  margin: 1em 0;
+}
+
+.xmd-incomplete__table-grid {
+  display: grid;
+  gap: 6px;
+  min-height: 4rem;
+  padding: 8px;
+  border: 1px solid #eef0f3;
+  border-radius: 6px;
+  background: #fafbfc;
+}
+
+.xmd-incomplete__table-grid::before {
+  content: "";
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #f0f2f5 25%, #e6e9ef 50%, #f0f2f5 75%);
+  background-size: 200% 100%;
+  animation: xmd-shimmer 1.2s ease-in-out infinite;
+  grid-row: 1 / -1;
+}
+
+@keyframes xmd-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
   }
 }
 

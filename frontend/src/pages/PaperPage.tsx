@@ -45,6 +45,7 @@ import NoteGenerationPanel from "../components/NoteGenerationPanel";
 import WorkspaceShell from "../components/WorkspaceShell";
 import { useStreamEvents } from "../hooks/useStreamEvents";
 import { useStickToBottom } from "../hooks/useStickToBottom";
+import { useStreamDisplayContent } from "../hooks/useStreamDisplayContent";
 import ScrollToBottomButton from "../components/ScrollToBottomButton";
 import type { StreamEvent } from "../types/events";
 import { formatElapsed } from "../utils/formatElapsed";
@@ -117,6 +118,7 @@ export default function PaperPage() {
   >([]);
   const sseStartedRef = useRef(false);
   const notePrintRef = useRef<HTMLDivElement>(null);
+  const noteContentRef = useRef("");
 
   const stream = useStreamEvents(`yanxi:paper:${paperId}:timeline`);
   const {
@@ -132,6 +134,11 @@ export default function PaperPage() {
     sectionTimelines,
     noteSections,
   } = stream;
+
+  useEffect(() => {
+    noteContentRef.current = noteContent;
+  }, [noteContent]);
+
   const activePaperIdRef = useRef(paperId);
   activePaperIdRef.current = paperId;
   const isStreaming =
@@ -159,32 +166,39 @@ export default function PaperPage() {
     localStorage.setItem(NOTE_MODEL_KEY, next);
   }, []);
 
-  const loadPaper = useCallback(async () => {
-    const id = paperId;
-    const p = await api.getPaper(id);
-    if (activePaperIdRef.current !== id) return;
-    setPaper(p);
-    setParseElapsed(p.parse_elapsed_seconds);
-    setProgress(0);
-    setMineruState("");
-    if (p.has_note || p.status === "done" || p.status === "noting") {
-      setActivePanes(["note"]);
-    } else if (p.has_markdown) {
-      setActivePanes(["markdown"]);
-    } else {
-      setActivePanes(["pdf"]);
-    }
-    if (p.has_note && (p.status === "done" || p.status === "noting")) {
-      try {
-        const note = await api.fetchNote(id);
-        if (activePaperIdRef.current === id) setNoteContent(note);
-      } catch {
-        if (activePaperIdRef.current === id) setNoteContent("");
+  const loadPaper = useCallback(
+    async (opts?: { refreshNote?: boolean }) => {
+      const refreshNote = opts?.refreshNote !== false;
+      const id = paperId;
+      const p = await api.getPaper(id);
+      if (activePaperIdRef.current !== id) return;
+      setPaper(p);
+      setParseElapsed(p.parse_elapsed_seconds);
+      setProgress(0);
+      setMineruState("");
+      if (p.has_note || p.status === "done" || p.status === "noting") {
+        setActivePanes(["note"]);
+      } else if (p.has_markdown) {
+        setActivePanes(["markdown"]);
+      } else {
+        setActivePanes(["pdf"]);
       }
-    } else if (activePaperIdRef.current === id) {
-      setNoteContent("");
-    }
-  }, [paperId, setNoteContent]);
+      if (!refreshNote) return;
+      if (p.has_note && (p.status === "done" || p.status === "noting")) {
+        try {
+          const note = await api.fetchNote(id);
+          if (activePaperIdRef.current === id) {
+            setNoteContent((current) => (current === note ? current : note));
+          }
+        } catch {
+          if (activePaperIdRef.current === id) setNoteContent("");
+        }
+      } else if (activePaperIdRef.current === id) {
+        setNoteContent("");
+      }
+    },
+    [paperId, setNoteContent]
+  );
 
   useEffect(() => {
     setPaper(null);
@@ -250,7 +264,8 @@ export default function PaperPage() {
           );
         }
         if (ev.status === "done") {
-          void loadPaper();
+          const hasStreamedNote = noteContentRef.current.trim().length > 0;
+          void loadPaper({ refreshNote: !hasStreamedNote });
         }
         if (ev.status === "failed") {
           message.error(ev.error || "处理失败");
@@ -286,7 +301,8 @@ export default function PaperPage() {
       () => {
         if (activePaperIdRef.current !== streamPaperId) return;
         sseStartedRef.current = false;
-        void loadPaper();
+        const hasStreamedNote = noteContentRef.current.trim().length > 0;
+        void loadPaper({ refreshNote: !hasStreamedNote });
         setRegenerating(false);
         setGeneratingModelLabel("");
       }
@@ -401,6 +417,8 @@ export default function PaperPage() {
 
   const noteStreaming = isStreaming && (paper?.status === "noting" || regenerating);
 
+  const noteDisplayContent = useStreamDisplayContent(noteContent, noteStreaming, 50);
+
   const noteStickEnabled =
     pipelinePhase === "final" && finalStatus === "running";
 
@@ -411,7 +429,7 @@ export default function PaperPage() {
     showScrollToBottom: showNoteScrollToBottom,
   } = useStickToBottom({
     enabled: noteStickEnabled,
-    contentDeps: [noteContent],
+    contentDeps: [noteDisplayContent],
   });
 
   const handleAddSectionFigure = useCallback(
@@ -705,7 +723,7 @@ export default function PaperPage() {
               </div>
             )}
             <NoteRenderer
-              content={noteContent}
+              content={noteDisplayContent}
               paperId={paperId}
               streaming={noteStreaming}
               sectionActions={showSectionActions}

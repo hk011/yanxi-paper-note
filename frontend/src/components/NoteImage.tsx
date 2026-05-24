@@ -1,5 +1,7 @@
-import { useEffect, useState, type ImgHTMLAttributes } from "react";
+import { memo, useEffect, useMemo, useState, type ImgHTMLAttributes } from "react";
 import { buildAuthenticatedUrl, buildPaperFileUrl, getToken } from "../api/client";
+import { normalizeFigureRelPath } from "../utils/genFigure";
+import { acquireImageBlob, peekImageBlob } from "../utils/imageBlobCache";
 
 function resolveImageUrl(raw: string, paperId: number): string {
   if (!raw) return raw;
@@ -16,15 +18,18 @@ interface Props extends ImgHTMLAttributes<HTMLImageElement> {
   rawSrc: string;
   paperId: number;
   eager?: boolean;
+  /** 流式期间直接用鉴权 URL，避免 blob 反复 revoke/重建导致闪动 */
+  useDirectSrc?: boolean;
   onPreview?: (src: string) => void;
   onLoadError?: () => void;
 }
 
 /** 将鉴权图片预加载为 blob URL，便于本地打印与离线渲染 */
-export default function NoteImage({
+function NoteImage({
   rawSrc,
   paperId,
   eager = false,
+  useDirectSrc = false,
   onPreview,
   onLoadError,
   className,
@@ -32,48 +37,61 @@ export default function NoteImage({
   ...rest
 }: Props) {
   const resolved = resolveImageUrl(rawSrc, paperId);
-  const [src, setSrc] = useState(resolved);
+  const cacheKey = useMemo(
+    () => `${paperId}:${normalizeFigureRelPath(rawSrc)}`,
+    [paperId, rawSrc]
+  );
+  const [src, setSrc] = useState(() => {
+    if (useDirectSrc) return resolved;
+    return peekImageBlob(cacheKey) ?? resolved;
+  });
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    let objectUrl: string | undefined;
     let cancelled = false;
     setFailed(false);
+
+    if (useDirectSrc) {
+      setSrc(resolved);
+      return;
+    }
 
     if (!resolved || resolved.startsWith("blob:") || resolved.startsWith("data:")) {
       setSrc(resolved);
       return;
     }
 
-    (async () => {
-      try {
-        const token = getToken();
-        const res = await fetch(resolved, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (!res.ok) {
-          if (!cancelled) {
-            setFailed(true);
-            onLoadError?.();
-          }
-          return;
-        }
-        const blob = await res.blob();
-        objectUrl = URL.createObjectURL(blob);
-        if (!cancelled) setSrc(objectUrl);
-      } catch {
+    const cached = peekImageBlob(cacheKey);
+    if (cached) {
+      setSrc(cached);
+      return;
+    }
+
+    const { promise, release } = acquireImageBlob(cacheKey, async () => {
+      const token = getToken();
+      const res = await fetch(resolved, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      return res.blob();
+    });
+
+    promise
+      .then((url) => {
+        if (!cancelled) setSrc(url);
+      })
+      .catch(() => {
         if (!cancelled) {
           setFailed(true);
           onLoadError?.();
         }
-      }
-    })();
+      });
 
     return () => {
       cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      release();
     };
-  }, [resolved, onLoadError]);
+  }, [cacheKey, resolved, onLoadError, useDirectSrc]);
 
   if (failed) {
     return null;
@@ -85,6 +103,7 @@ export default function NoteImage({
       alt={alt ?? ""}
       src={src}
       loading={eager ? "eager" : "lazy"}
+      decoding="async"
       className={className}
       onClick={() => onPreview?.(src)}
       onError={() => {
@@ -94,3 +113,13 @@ export default function NoteImage({
     />
   );
 }
+
+export default memo(
+  NoteImage,
+  (prev, next) =>
+    prev.rawSrc === next.rawSrc &&
+    prev.paperId === next.paperId &&
+    prev.eager === next.eager &&
+    prev.useDirectSrc === next.useDirectSrc &&
+    prev.className === next.className
+);
