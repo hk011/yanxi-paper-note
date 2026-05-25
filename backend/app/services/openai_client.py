@@ -23,7 +23,10 @@ GEN_FIGURE_OPENAI_TOOL = {
             "properties": {
                 "prompt": {
                     "type": "string",
-                    "description": "按模板组装的完整中文 Seedream 提示，勿超过约 300 汉字",
+                    "description": (
+                        "完整中文文生图提示词：16:9 构图、布局与风格明确；"
+                        "各区域须配文字说明，图内文字用英文双引号写出；约 200–400 字"
+                    ),
                 },
                 "figure_kind": {
                     "type": "string",

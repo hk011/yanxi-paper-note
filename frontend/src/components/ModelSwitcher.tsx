@@ -9,6 +9,8 @@ interface Props {
   onChange: (model: string) => void;
   disabled?: boolean;
   compact?: boolean;
+  /** 千帆 MCP 联网搜索是否已配置 */
+  mcpSearchAvailable?: boolean;
 }
 
 function resolveLabel(models: ModelOption[], id: string, short = false): string {
@@ -24,14 +26,20 @@ function isCustomModel(models: ModelOption[], id: string): boolean {
   return models.find((m) => m.id === id)?.source === "custom";
 }
 
+function customSupportsSearch(mcpSearchAvailable: boolean): boolean {
+  return mcpSearchAvailable;
+}
+
 export default function ModelSwitcher({
   models,
   value,
   onChange,
   disabled,
   compact = false,
+  mcpSearchAvailable = false,
 }: Props) {
   const selectedCustom = isCustomModel(models, value);
+  const selectedCustomSearch = selectedCustom && customSupportsSearch(mcpSearchAvailable);
 
   const items: MenuProps["items"] = models.map((m) => ({
     key: m.id,
@@ -41,7 +49,11 @@ export default function ModelSwitcher({
         {m.source === "custom" ? (
           <span className="model-switcher-tags">
             <span className="model-switcher-custom-tag">自定义</span>
-            <span className="model-switcher-no-search-tag">不支持联网搜索</span>
+            {customSupportsSearch(mcpSearchAvailable) ? (
+              <span className="model-switcher-mcp-search-tag">可联网</span>
+            ) : (
+              <span className="model-switcher-no-search-tag">无联网</span>
+            )}
           </span>
         ) : null}
       </span>
@@ -59,11 +71,19 @@ export default function ModelSwitcher({
       <ThunderboltOutlined className="chat-agent-pill-icon" />
       <span>{resolveLabel(models, value, compact)}</span>
       {selectedCustom ? (
-        <span className="model-switcher-pill-hint">无联网</span>
+        <span className="model-switcher-pill-hint">
+          {selectedCustomSearch ? "可联网" : "无联网"}
+        </span>
       ) : null}
       <DownOutlined className="chat-agent-pill-chevron" />
     </button>
   );
+
+  const tooltip = selectedCustom
+    ? selectedCustomSearch
+      ? "自定义模型：开启联网后将通过千帆 MCP 搜索"
+      : "自定义模型：未配置 web_search_mcp_server_key，无法联网"
+    : undefined;
 
   return (
     <Dropdown
@@ -71,11 +91,7 @@ export default function ModelSwitcher({
       trigger={["click"]}
       disabled={disabled}
     >
-      {selectedCustom ? (
-        <Tooltip title="自定义模型不支持联网搜索">{button}</Tooltip>
-      ) : (
-        button
-      )}
+      {tooltip ? <Tooltip title={tooltip}>{button}</Tooltip> : button}
     </Dropdown>
   );
 }

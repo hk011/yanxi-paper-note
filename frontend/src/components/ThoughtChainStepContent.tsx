@@ -1,5 +1,6 @@
 import { Typography } from "antd";
 import { parseFigureOutput } from "../utils/figureOutput";
+import { extractHitsFromToolOutput, mergeSearchHits } from "../utils/searchHits";
 import type { TimelineItem } from "../types/events";
 
 const { Text, Paragraph } = Typography;
@@ -69,7 +70,10 @@ export default function ThoughtChainStepContent({ item, paperId }: Props) {
   }
 
   if (item.tool === "web_search") {
-    const hits = item.hits || [];
+    const hits =
+      (mergeSearchHits(item.hits, extractHitsFromToolOutput(item.output)) as
+        | unknown[]
+        | undefined) || [];
     if (hits.length > 0) {
       return <SearchHitsList hits={hits} />;
     }

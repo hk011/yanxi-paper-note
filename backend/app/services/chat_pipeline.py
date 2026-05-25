@@ -15,12 +15,15 @@ from app.db.session import get_engine
 from app.prompts.chat import (
     CHAT_FIGURE_CAPABILITY_OFF,
     CHAT_FIGURE_CAPABILITY_ON,
+    CHAT_SEARCH_CAPABILITY_MCP,
     CHAT_SYSTEM,
     FOLLOWUP_SUGGESTIONS_USER,
 )
+from app.services.web_search import web_search_configured
 from app.schemas.events import StreamEvent
 from app.services.ark_client import GEN_FIGURE_TOOL
 from app.services.chat_tools import make_gen_figure_tool_handler
+from app.services.search_tools import build_search_tools, wrap_tool_handler_with_web_search
 from app.services.content_builder import build_paper_skeleton, load_content_list
 from app.services.llm import complete_text, run_with_tool_loop
 from app.services.model_registry import default_model_key, list_model_options, resolve_model
@@ -274,12 +277,22 @@ async def run_chat_turn(
 
     note_text = _load_note(data_dir)
     skeleton = _load_skeleton(data_dir)
+    if enable_search:
+        search_capability = (
+            CHAT_SEARCH_CAPABILITY_MCP
+            if web_search_configured()
+            else "- 用户已开启联网搜索（内置模型将自动检索）"
+        )
+    else:
+        search_capability = "- 用户未开启联网搜索，请勿调用 web_search"
+
     system_prompt = CHAT_SYSTEM.format(
         note_content=note_text,
         paper_skeleton=skeleton,
         thinking_label="已开启" if enable_thinking else "已关闭",
         search_label="已开启" if enable_search else "已关闭",
         figure_label="已开启" if enable_figure_gen else "已关闭",
+        search_capability=search_capability,
         figure_capability=(
             CHAT_FIGURE_CAPABILITY_ON
             if enable_figure_gen
@@ -316,10 +329,11 @@ async def run_chat_turn(
         session.commit()
         session.refresh(user_msg)
         user_message_id = user_msg.id
+        endpoint = resolve_model(session, user_id, model or "")
 
-        tools: list[dict] = []
-        if enable_search:
-            tools.append({"type": "web_search", "limit": 10})
+        tools: list[dict] = list(
+            build_search_tools(endpoint, enable_search=enable_search)
+        )
         if enable_figure_gen:
             tools.append(GEN_FIGURE_TOOL)
         input_messages = build_chat_messages(
@@ -362,12 +376,13 @@ async def run_chat_turn(
         await emit(ev)
 
     try:
-        with Session(engine) as session:
-            endpoint = resolve_model(session, user_id, model or "")
-        tool_handler = (
+        base_handler = (
             make_gen_figure_tool_handler(paper_id, user_id)
             if enable_figure_gen
             else _noop_chat_tool
+        )
+        tool_handler = wrap_tool_handler_with_web_search(
+            base_handler, emit=on_emit, endpoint=endpoint
         )
         await run_with_tool_loop(
             endpoint=endpoint,

@@ -111,6 +111,7 @@ export default function PaperPage() {
   const refineAbortRef = useRef<(() => void) | null>(null);
   const refineContentRef = useRef("");
   const [noteModels, setNoteModels] = useState<ModelOption[]>([]);
+  const [mcpSearchAvailable, setMcpSearchAvailable] = useState(false);
   const [noteModel, setNoteModel] = useState("");
   const [generatingModelLabel, setGeneratingModelLabel] = useState("");
   const [sidebarPapers, setSidebarPapers] = useState<
@@ -151,6 +152,7 @@ export default function PaperPage() {
   useEffect(() => {
     void api.listModels().then((res) => {
       setNoteModels(res.models);
+      setMcpSearchAvailable(Boolean(res.mcp_search_available));
       const saved = localStorage.getItem(NOTE_MODEL_KEY);
       const pick =
         (saved && res.models.some((m) => m.id === saved) && saved) ||
@@ -682,6 +684,7 @@ export default function PaperPage() {
     paper.status === "parsed";
 
   const customNoteModel = isCustomModel(noteModels, noteModel);
+  const customNoteSearchOk = customNoteModel && mcpSearchAvailable;
 
   const activeNoteModelLabel = isNoting
     ? generatingModelLabel || modelLabel(noteModels, noteModel)
@@ -749,6 +752,7 @@ export default function PaperPage() {
                       value={noteModel}
                       onChange={handleNoteModelChange}
                       compact
+                      mcpSearchAvailable={mcpSearchAvailable}
                     />
                   ) : null}
                   <Button type="primary" onClick={() => void handleGenerateNote()}>
@@ -756,7 +760,11 @@ export default function PaperPage() {
                   </Button>
                 </div>
                 {customNoteModel ? (
-                  <p className="note-generate-hint">自定义模型不支持联网搜索</p>
+                  <p className="note-generate-hint">
+                    {customNoteSearchOk
+                      ? "自定义模型已支持联网（千帆 MCP web_search 工具）与 gen_figure 配图"
+                      : "自定义模型可生成笔记；联网需在 .env 配置 web_search_mcp_server_key"}
+                  </p>
                 ) : null}
               </>
             ) : (
@@ -838,6 +846,7 @@ export default function PaperPage() {
           onChange={handleNoteModelChange}
           compact
           disabled={noteStreaming}
+          mcpSearchAvailable={mcpSearchAvailable}
         />
       )}
       {canEditNote && showNote && (
@@ -1062,6 +1071,7 @@ export default function PaperPage() {
         open={refineModalHeading != null}
         paperId={paperId}
         heading={refineModalHeading || ""}
+        noteContent={noteContent}
         onCancel={() => setRefineModalHeading(null)}
         onReviewReady={handleSectionRefineReview}
       />

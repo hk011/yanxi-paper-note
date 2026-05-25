@@ -1,8 +1,19 @@
-import { Input, Modal, Spin } from "antd";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { api, ModelOption, subscribeSectionRefineStream } from "../api/client";
+import { Alert, Input, Modal, Spin, Upload } from "antd";
+import type { AttachmentsProps } from "@ant-design/x";
+import { PictureOutlined, PlusOutlined } from "@ant-design/icons";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  api,
+  buildPaperFileUrl,
+  ModelOption,
+  subscribeSectionRefineStream,
+} from "../api/client";
+import ChatImageAttachments from "./ChatImageAttachments";
 import ChatFeatureToggles from "./ChatFeatureToggles";
 import ModelSwitcher, { isCustomModel } from "./ModelSwitcher";
+import NoteImage from "./NoteImage";
+import { extractSectionImageRefs } from "../utils/noteSection";
+import { normalizeImageSrcKey } from "../utils/markdownImages";
 
 const REFINE_HINTS = [
   "写得更通俗易懂，适合非专业读者",
@@ -11,10 +22,13 @@ const REFINE_HINTS = [
   "与上一小节衔接，补一句过渡",
 ];
 
+type AttachmentItem = NonNullable<AttachmentsProps["items"]>[number];
+
 interface Props {
   open: boolean;
   paperId: number;
   heading: string;
+  noteContent: string;
   onCancel: () => void;
   onReviewReady: (mergedContent: string, model: string) => void;
 }
@@ -23,6 +37,7 @@ export default function SectionRefineModal({
   open,
   paperId,
   heading,
+  noteContent,
   onCancel,
   onReviewReady,
 }: Props) {
@@ -30,14 +45,20 @@ export default function SectionRefineModal({
   const [enableThinking, setEnableThinking] = useState(true);
   const [enableSearch, setEnableSearch] = useState(false);
   const [models, setModels] = useState<ModelOption[]>([]);
+  const [mcpSearchAvailable, setMcpSearchAvailable] = useState(false);
   const [model, setModel] = useState("");
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState("");
   const [error, setError] = useState("");
+  const [extraAttachments, setExtraAttachments] = useState<AttachmentItem[]>([]);
   const abortRef = useRef<(() => void) | null>(null);
   const previewRef = useRef("");
 
   const customModel = isCustomModel(models, model);
+  const sectionImages = useMemo(
+    () => (open ? extractSectionImageRefs(noteContent, heading) : []),
+    [open, noteContent, heading]
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -45,21 +66,82 @@ export default function SectionRefineModal({
     setPreview("");
     setError("");
     setLoading(false);
+    setExtraAttachments([]);
     previewRef.current = "";
     void api.getChatConfig(paperId).then((cfg) => {
       setModels(cfg.models);
       setModel(cfg.default_model);
+      setMcpSearchAvailable(Boolean(cfg.mcp_search_available));
     });
     return () => abortRef.current?.();
   }, [open, paperId, heading]);
 
+  const searchDisabled = customModel && !mcpSearchAvailable;
+
   useEffect(() => {
-    if (customModel && enableSearch) setEnableSearch(false);
-  }, [customModel, enableSearch]);
+    if (searchDisabled && enableSearch) setEnableSearch(false);
+  }, [searchDisabled, enableSearch]);
+
+  const uploadAttachment = async (file: File) => {
+    return api.uploadChatImage(paperId, file);
+  };
+
+  const handleAddFile = async (file: File) => {
+    if (customModel) return;
+    const uid = `refine-${Date.now()}-${file.name}`;
+    const thumbUrl = URL.createObjectURL(file);
+    setExtraAttachments((prev) => [
+      ...prev,
+      {
+        uid,
+        name: file.name,
+        status: "uploading",
+        thumbUrl,
+        url: thumbUrl,
+      },
+    ]);
+    try {
+      const result = await uploadAttachment(file);
+      setExtraAttachments((prev) =>
+        prev.map((a) =>
+          a.uid === uid
+            ? {
+                ...a,
+                status: "done",
+                response: result,
+                url: result.url || buildPaperFileUrl(paperId, result.path),
+              }
+            : a
+        )
+      );
+    } catch {
+      setExtraAttachments((prev) => prev.filter((a) => a.uid !== uid));
+      setError("图片上传失败");
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (customModel) return;
+    const file = Array.from(e.clipboardData.files).find((f) =>
+      f.type.startsWith("image/")
+    );
+    if (!file) return;
+    e.preventDefault();
+    void handleAddFile(file);
+  };
+
+  const pendingExtra = extraAttachments.filter((a) => a.status === "uploading");
+  const doneExtra = extraAttachments
+    .filter((a) => a.status === "done")
+    .map((a) => ({
+      path: (a.response as { path?: string } | undefined)?.path || "",
+      name: a.name || "",
+    }))
+    .filter((a) => a.path);
 
   const handleSubmit = useCallback(() => {
     const inst = instruction.trim();
-    if (!inst || !model || loading) return;
+    if (!inst || !model || loading || pendingExtra.length > 0) return;
     setLoading(true);
     setPreview("");
     setError("");
@@ -73,6 +155,7 @@ export default function SectionRefineModal({
         model,
         enable_thinking: enableThinking,
         enable_search: enableSearch,
+        attachments: customModel ? [] : doneExtra,
       },
       (ev) => {
         if (ev.type === "content" && ev.delta) {
@@ -107,6 +190,9 @@ export default function SectionRefineModal({
     heading,
     enableThinking,
     enableSearch,
+    customModel,
+    doneExtra,
+    pendingExtra.length,
     onReviewReady,
   ]);
 
@@ -115,11 +201,21 @@ export default function SectionRefineModal({
     onCancel();
   };
 
+  const visionHint = customModel
+    ? "自定义模型不支持识图：本节已有图片与你添加的图片均不会上传，仅依据文字润色。如需结合图片，请改用内置多模态模型。"
+    : sectionImages.length > 0
+      ? `将默认上传本节 ${sectionImages.length} 张引用图片${
+          doneExtra.length > 0 ? `，以及你补充的 ${doneExtra.length} 张` : ""
+        }，供模型结合图文润色。`
+      : doneExtra.length > 0
+        ? `将上传你补充的 ${doneExtra.length} 张图片供模型参考。`
+        : "本节正文暂无图片引用；可点击下方添加参考图。";
+
   return (
     <Modal
       title={`润色本节 · ${heading}`}
       open={open}
-      width={640}
+      width={680}
       okText={loading ? "润色中…" : "开始润色"}
       cancelText="取消"
       confirmLoading={loading}
@@ -130,10 +226,38 @@ export default function SectionRefineModal({
       <p className="section-action-modal-desc">
         只改写当前小节正文，保留本节已有配图引用；完成后可预览 diff 再决定是否保存。
       </p>
+      <Alert type="info" showIcon message={visionHint} className="section-refine-vision-alert" />
+      {sectionImages.length > 0 ? (
+        <div className="section-refine-section-images">
+          <span className="section-refine-section-images-label">
+            <PictureOutlined /> 本节图片（默认上传）
+          </span>
+          <div className="section-refine-section-images-row">
+            {sectionImages.map((img) => {
+              const key = normalizeImageSrcKey(img.src);
+              return (
+                <div key={key} className="section-refine-section-image-chip">
+                  <NoteImage
+                    rawSrc={img.src}
+                    paperId={paperId}
+                    eager
+                    alt={img.alt || "本节图片"}
+                    className="section-refine-section-image-thumb"
+                  />
+                  {img.alt ? (
+                    <span className="section-refine-section-image-caption">{img.alt}</span>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
       <Input.TextArea
         value={instruction}
         onChange={(e) => setInstruction(e.target.value)}
-        placeholder="描述要如何改这一节…"
+        onPaste={handlePaste}
+        placeholder="描述要如何改这一节…（可粘贴图片）"
         autoSize={{ minRows: 3, maxRows: 6 }}
         disabled={loading}
       />
@@ -150,6 +274,33 @@ export default function SectionRefineModal({
           </button>
         ))}
       </div>
+      {!customModel ? (
+        <div className="section-refine-extra-images">
+          <ChatImageAttachments
+            items={extraAttachments}
+            onRemove={(uid) =>
+              setExtraAttachments((prev) => prev.filter((a) => a.uid !== uid))
+            }
+          />
+          <Upload
+            accept="image/jpeg,image/png,image/gif,image/webp"
+            showUploadList={false}
+            disabled={loading}
+            beforeUpload={(file) => {
+              void handleAddFile(file);
+              return false;
+            }}
+          >
+            <button
+              type="button"
+              className="section-refine-add-image-btn"
+              disabled={loading}
+            >
+              <PlusOutlined /> 添加图片
+            </button>
+          </Upload>
+        </div>
+      ) : null}
       <div className="section-refine-modal-controls">
         {models.length > 0 ? (
           <ModelSwitcher
@@ -157,6 +308,7 @@ export default function SectionRefineModal({
             value={model}
             onChange={setModel}
             disabled={loading}
+            mcpSearchAvailable={mcpSearchAvailable}
           />
         ) : null}
         <ChatFeatureToggles
@@ -166,8 +318,12 @@ export default function SectionRefineModal({
           onThinkingChange={setEnableThinking}
           onSearchChange={setEnableSearch}
           disabled={loading}
-          searchDisabled={customModel}
-          searchDisabledReason="自定义模型不支持联网搜索"
+          searchDisabled={searchDisabled}
+          searchDisabledReason={
+            mcpSearchAvailable
+              ? "当前模型不支持联网搜索"
+              : "自定义模型需配置千帆 MCP 联网搜索（web_search_mcp_server_key）"
+          }
         />
       </div>
       {loading || preview ? (

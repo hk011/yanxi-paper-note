@@ -19,7 +19,12 @@ from app.prompts.note import (
     section_instruction,
 )
 from app.schemas.events import StreamEvent
-from app.services.ark_client import DEFAULT_TOOLS
+from app.services.ark_client import GEN_FIGURE_TOOL
+from app.services.search_tools import (
+    build_search_tools,
+    search_enabled_for_endpoint,
+    wrap_tool_handler_with_web_search,
+)
 from app.services.content_builder import (
     build_image_catalog,
     build_paper_skeleton,
@@ -29,7 +34,7 @@ from app.services.content_builder import (
 from app.services.llm import run_with_tool_loop as llm_run_with_tool_loop
 from app.services.model_registry import ModelEndpoint, resolve_model
 from app.services.mineru import paper_data_dir
-from app.services.figure_prompt import resolve_figure_size_for_kind
+from app.prompts.image_gen import NOTE_FIGURE_SIZE
 from app.services.tools.image_gen import format_tool_output, generate_figure
 
 SECTION_CONCURRENCY = 4
@@ -134,12 +139,13 @@ async def _run_note_pipeline_body(
             session.add(paper)
             session.commit()
 
-    enable_web_search = endpoint.provider == "ark"
+    enable_web_search = search_enabled_for_endpoint(endpoint)
+    use_thinking = endpoint.provider == "ark"
     note_system = build_note_system(enable_web_search=enable_web_search)
     outline_user_template = build_outline_user(enable_web_search=enable_web_search)
-    outline_tools = (
-        [{"type": "web_search", "limit": 10}] if enable_web_search else None
-    )
+    search_tools = build_search_tools(endpoint, enable_search=enable_web_search)
+    outline_tools = search_tools if search_tools else None
+    note_tools = list(search_tools) + [GEN_FIGURE_TOOL]
 
     await _emit(
         paper_id,
@@ -192,10 +198,13 @@ async def _run_note_pipeline_body(
         endpoint=endpoint,
         input_messages=outline_input,
         tools=outline_tools,
-        tool_handler=_noop_tool,
+        tool_handler=wrap_tool_handler_with_web_search(
+            _noop_tool, emit=outline_emit, endpoint=endpoint
+        ),
         on_content=on_outline_content,
         emit=outline_emit,
         emit_content=False,
+        enable_thinking=use_thinking,
     )
     outline = outline_text or "".join(outline_parts)
 
@@ -214,24 +223,15 @@ async def _run_note_pipeline_body(
     generated_images: list[str] = []
     images_lock = asyncio.Lock()
 
-    async def tool_handler(name: str, args: dict) -> str:
-        if name in ("web_search", "search"):
-            return json.dumps(
-                {"message": "当前模型不支持联网搜索，请仅依据论文内容撰写"},
-                ensure_ascii=False,
-            )
+    async def _note_tool_core(name: str, args: dict) -> str:
         if name != "gen_figure":
             return json.dumps({"message": "unknown tool"}, ensure_ascii=False)
         prompt = args.get("prompt", "")
         ref = args.get("ref_image_path")
         if ref and not Path(ref).is_absolute():
             ref = str(mineru_dir / ref)
-        size = resolve_figure_size_for_kind(
-            args.get("figure_kind"),
-            section_body=prompt,
-        )
         result = await generate_figure(
-            prompt, assets_dir, ref, size=size
+            prompt, assets_dir, ref, size=NOTE_FIGURE_SIZE
         )
         with Session(engine) as session:
             session.add(
@@ -319,14 +319,18 @@ async def _run_note_pipeline_body(
                 draft_parts.append(delta)
 
             try:
+                section_tool_handler = wrap_tool_handler_with_web_search(
+                    _note_tool_core, emit=section_emit, endpoint=endpoint
+                )
                 section_text = await llm_run_with_tool_loop(
                     endpoint=endpoint,
                     input_messages=section_input,
-                    tools=DEFAULT_TOOLS,
-                    tool_handler=tool_handler,
+                    tools=note_tools,
+                    tool_handler=section_tool_handler,
                     on_content=collect_draft,
                     emit=section_emit,
                     emit_content=False,
+                    enable_thinking=use_thinking,
                 )
                 draft = section_text or "".join(draft_parts)
                 await _emit(
@@ -405,14 +409,18 @@ async def _run_note_pipeline_body(
     async def final_emit(ev: StreamEvent) -> None:
         await emit(_enrich_event(ev, phase="final"))
 
+    final_tool_handler = wrap_tool_handler_with_web_search(
+        _note_tool_core, emit=final_emit, endpoint=endpoint
+    )
     await llm_run_with_tool_loop(
         endpoint=endpoint,
         input_messages=final_input,
-        tools=DEFAULT_TOOLS,
-        tool_handler=tool_handler,
+        tools=note_tools,
+        tool_handler=final_tool_handler,
         on_content=append_note,
         emit=final_emit,
         emit_content=True,
+        enable_thinking=use_thinking,
     )
 
     await _emit(

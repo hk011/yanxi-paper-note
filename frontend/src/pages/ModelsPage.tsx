@@ -7,6 +7,7 @@ import WorkspaceShell from "../components/WorkspaceShell";
 export default function ModelsPage() {
   const [papers, setPapers] = useState<PaperSummary[]>([]);
   const [builtinModels, setBuiltinModels] = useState<ModelOption[]>([]);
+  const [mcpSearchAvailable, setMcpSearchAvailable] = useState(false);
 
   const loadPapers = useCallback(async () => {
     try {
@@ -20,6 +21,7 @@ export default function ModelsPage() {
     try {
       const res = await api.listModels();
       setBuiltinModels(res.models.filter((m) => m.source === "builtin"));
+      setMcpSearchAvailable(Boolean(res.mcp_search_available));
     } catch (e) {
       message.error(e instanceof Error ? e.message : "加载模型列表失败");
     }
@@ -55,7 +57,10 @@ export default function ModelsPage() {
         ) : null}
 
         <Card size="small" title="自定义模型" className="models-page-custom">
-          <ModelManagerPanel onChanged={loadModels} />
+          <ModelManagerPanel
+            onChanged={loadModels}
+            mcpSearchAvailable={mcpSearchAvailable}
+          />
         </Card>
       </div>
     </WorkspaceShell>

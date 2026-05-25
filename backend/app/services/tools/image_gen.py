@@ -1,12 +1,13 @@
 """Seedream 图像生成（gen_figure 工具后端实现）"""
 
 import json
+import random
 from pathlib import Path
 
 import httpx
 
 from app.core.config import get_settings
-from app.prompts.image_gen import enhance_figure_prompt
+from app.prompts.image_gen import NOTE_FIGURE_SIZE, enhance_figure_prompt
 
 
 async def generate_figure(
@@ -26,7 +27,8 @@ async def generate_figure(
     body: dict = {
         "model": settings.ark_image_gen_model,
         "prompt": final_prompt,
-        "size": size or "2560x1440",
+        "size": size or NOTE_FIGURE_SIZE,
+        "seed": random.randint(0, 2147483647),
         "response_format": "url",
         "watermark": False,
     }

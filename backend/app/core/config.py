@@ -1,4 +1,3 @@
-from functools import lru_cache
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -22,6 +21,12 @@ class Settings(BaseSettings):
     ark_url: str = "https://ark.cn-beijing.volces.com/api/v3"
     ark_multi_model_list: str = "doubao-seed-2-0-pro-260215"
     ark_image_gen_model: str = "doubao-seedream-5-0-260128"
+    # 小节配图提示词优化（多模态，需支持 input_image）
+    ark_figure_optimizer_model: str = "doubao-seed-2-0-lite-260428"
+
+    # 千帆百度搜索 MCP（streamableHttp），供自定义模型联网搜索
+    web_search_mcp_server: str = "https://qianfan.baidubce.com/v2/tools/web-search/mcp"
+    web_search_mcp_server_key: str = ""
 
     jwt_secret: str = "yanxi-dev-secret-change-in-prod"
     jwt_expire_hours: int = 72
@@ -34,8 +39,8 @@ class Settings(BaseSettings):
         return [m.strip() for m in self.ark_multi_model_list.split(",") if m.strip()]
 
 
-@lru_cache
 def get_settings() -> Settings:
+    """每次读取 .env，便于开发时修改 MCP 等配置后无需重启进程。"""
     s = Settings()
     s.data_dir.mkdir(parents=True, exist_ok=True)
     return s

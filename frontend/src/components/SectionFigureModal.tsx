@@ -43,7 +43,7 @@ export default function SectionFigureModal({
       destroyOnClose
     >
       <p className="section-action-modal-desc">
-        将根据本节内容自动推断图类型（信息图/架构/流程等）与比例，并按火山 Seedream 模板生成提示词；也可选填补充要求。
+        将结合本节正文与已有图片，由多模态模型优化文生图提示词后生成 16:9 配图（含图内文字说明）；也可选填补充要求。
       </p>
       <Input.TextArea
         value={instruction}

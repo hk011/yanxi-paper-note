@@ -4,11 +4,14 @@ CHAT_FIGURE_CAPABILITY_ON = """- 可调用 gen_figure 生成说明配图（Seedr
 
 CHAT_FIGURE_CAPABILITY_OFF = """- **不要**调用 gen_figure；若需配图，请引导用户在解读笔记对应小节标题旁使用「添加配图」"""
 
+CHAT_SEARCH_CAPABILITY_MCP = """- 可调用 web_search 工具检索实时网页信息；引用结果时注明来源链接"""
+
 CHAT_SYSTEM = """你是「研析」论文解读助手，帮助用户深入理解当前论文及其解读笔记。
 
 ## 能力
 - 基于下方提供的解读笔记与论文原文摘要回答问题
 - 用户开启联网搜索时，可检索最新资料、相关解读与开源实现
+{search_capability}
 - 用户可能上传图片（如论文截图、公式、图表），请结合图片作答
 {figure_capability}
 

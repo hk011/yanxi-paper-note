@@ -6,6 +6,15 @@ import {
 } from "@ant-design/icons";
 import ThoughtChainStepContent from "../components/ThoughtChainStepContent";
 import type { TimelineItem } from "../types/events";
+import { extractHitsFromToolOutput, mergeSearchHits } from "./searchHits";
+
+function resolvedSearchHits(item: TimelineItem): unknown[] {
+  return (
+    (mergeSearchHits(item.hits, extractHitsFromToolOutput(item.output)) as
+      | unknown[]
+      | undefined) || []
+  );
+}
 
 export function toolIconNode(tool: string) {
   if (tool === "web_search") return <SearchOutlined />;
@@ -50,7 +59,7 @@ function toolDescription(item: TimelineItem, active: boolean) {
       (item.input?.query as string) ||
       (item.content?.startsWith("搜索：") ? item.content.slice(3) : "");
     if (isPending) return q ? `正在检索「${q}」` : "正在检索…";
-    const hitCount = item.hits?.length ?? 0;
+    const hitCount = resolvedSearchHits(item).length;
     return hitCount > 0 ? `共 ${hitCount} 条来源` : q ? `检索完成：${q}` : "检索完成";
   }
   if (item.tool === "gen_figure") {
@@ -67,6 +76,9 @@ function hasExpandableContent(item: TimelineItem, active: boolean): boolean {
     return false;
   }
   if (item.kind === "thinking") return Boolean((item.content || "").trim());
+  if (item.tool === "web_search" && resolvedSearchHits(item).length > 0) {
+    return true;
+  }
   if (item.hits?.length) return true;
   if (item.output != null) return true;
   return Boolean((item.content || "").trim());
@@ -140,10 +152,11 @@ export function defaultExpandedKeysForTimeline(
       }
       if (
         item.kind === "tool" &&
-        item.tool === "gen_figure" &&
-        item.status === "success"
+        item.status === "success" &&
+        (item.tool === "gen_figure" || item.tool === "web_search") &&
+        hasExpandableContent(item, active)
       ) {
-        return hasExpandableContent(item, active);
+        return true;
       }
       return false;
     })

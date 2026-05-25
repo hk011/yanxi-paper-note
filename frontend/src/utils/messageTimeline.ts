@@ -1,22 +1,14 @@
 import type { TimelineItem } from "../types/events";
+import {
+  extractHitsFromToolOutput,
+  mergeSearchHits,
+} from "./searchHits";
 
-function mergeHits(existing: unknown[] | undefined, incoming: unknown[] | undefined) {
-  if (!incoming?.length) return existing;
-  if (!existing?.length) return incoming;
-  const seen = new Set<string>();
-  const merged: unknown[] = [];
-  for (const hit of [...existing, ...incoming]) {
-    if (!hit || typeof hit !== "object") continue;
-    const url =
-      (hit as Record<string, unknown>).url ||
-      (hit as Record<string, unknown>).link ||
-      (hit as Record<string, unknown>).source_url;
-    const key = typeof url === "string" ? url : JSON.stringify(hit);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push(hit);
-  }
-  return merged;
+function mergeHits(
+  existing: unknown[] | undefined,
+  incoming: unknown[] | undefined
+) {
+  return mergeSearchHits(existing, incoming);
 }
 
 function findToolItem(
@@ -96,6 +88,10 @@ export function timelineFromAssistantMessage(
         target.hits = mergeHits(target.hits, raw.hits);
       }
       if (raw.output != null) target.output = raw.output;
+      target.hits = mergeHits(
+        target.hits,
+        extractHitsFromToolOutput(raw.output)
+      );
     }
   }
 

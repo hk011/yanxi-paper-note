@@ -105,6 +105,7 @@ export default function ChatPanel({
   refining,
 }: Props) {
   const [models, setModels] = useState<ModelOption[]>([]);
+  const [mcpSearchAvailable, setMcpSearchAvailable] = useState(false);
   const [model, setModel] = useState("");
   const [contextLimit, setContextLimit] = useState(256000);
   const [promptTokens, setPromptTokens] = useState(0);
@@ -222,6 +223,7 @@ export default function ChatPanel({
       ]);
       setModels(config.models);
       setContextLimit(config.context_limit);
+      setMcpSearchAvailable(Boolean(config.mcp_search_available));
 
       const savedConv = localStorage.getItem(chatConvKey(paperId));
       const savedConvId = savedConv ? Number(savedConv) : NaN;
@@ -291,12 +293,13 @@ export default function ChatPanel({
   );
 
   const customModelSelected = isCustomModel(models, model);
+  const searchDisabled = customModelSelected && !mcpSearchAvailable;
 
   useEffect(() => {
-    if (customModelSelected && enableSearch) {
+    if (searchDisabled && enableSearch) {
       setEnableSearch(false);
     }
-  }, [customModelSelected, enableSearch]);
+  }, [searchDisabled, enableSearch]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -872,6 +875,7 @@ export default function ChatPanel({
                       value={model}
                       onChange={handleModelChange}
                       disabled={loading}
+                      mcpSearchAvailable={mcpSearchAvailable}
                     />
                   ) : null}
                   <ChatFeatureToggles
@@ -884,8 +888,12 @@ export default function ChatPanel({
                     onFigureGenChange={setEnableFigureGen}
                     showFigureGen
                     disabled={loading}
-                    searchDisabled={customModelSelected}
-                    searchDisabledReason="自定义模型不支持联网搜索"
+                    searchDisabled={searchDisabled}
+                    searchDisabledReason={
+                      mcpSearchAvailable
+                        ? "当前模型不支持联网搜索"
+                        : "自定义模型需配置千帆 MCP 联网搜索（web_search_mcp_server_key）"
+                    }
                   />
                 </div>
                 <div className="chat-composer-footer-right">

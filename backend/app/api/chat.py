@@ -97,12 +97,15 @@ def chat_config(
 ):
     _ensure_paper(paper_id, user, session)
     options = list_model_options(session, user.id)
+    from app.services.web_search import web_search_configured
+
     return ChatConfigOut(
         models=[
             ModelOptionOut(id=opt.id, label=opt.label, source=opt.source)
             for opt in options
         ],
         default_model=default_model_key(session, user.id),
+        mcp_search_available=web_search_configured(),
     )
 
 

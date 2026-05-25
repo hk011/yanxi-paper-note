@@ -12,6 +12,7 @@ class ModelOptionOut(BaseModel):
 class ModelListOut(BaseModel):
     models: list[ModelOptionOut]
     default_model: str
+    mcp_search_available: bool = False
 
 
 class UserModelCreate(BaseModel):

@@ -663,6 +663,7 @@ async def refine_note_section(
                     model=body.model or "",
                     enable_thinking=body.enable_thinking,
                     enable_search=body.enable_search,
+                    attachments=[a.model_dump() for a in body.attachments],
                     emit=emit,
                 )
             except Exception as e:
@@ -857,4 +858,8 @@ def get_mineru_file(
     target = resolve_paper_file_path(data_base, file_path)
     if target is None:
         raise HTTPException(404, "文件不存在")
-    return FileResponse(target)
+    headers = None
+    rel = str(target.relative_to(data_base.resolve())).replace("\\", "/")
+    if rel.startswith("images/gen/") or rel.startswith("assets/gen_"):
+        headers = {"Cache-Control": "no-store, max-age=0"}
+    return FileResponse(target, headers=headers)

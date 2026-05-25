@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from app.prompts.image_gen import (
     FigureProfile,
+    NOTE_FIGURE_SIZE,
     build_academic_figure_prompt,
-    compress_reference_knowledge,
     infer_figure_profile,
     resolve_figure_size,
     resolve_figure_size_for_kind,
@@ -13,8 +13,8 @@ from app.prompts.image_gen import (
 
 __all__ = [
     "FigureProfile",
+    "NOTE_FIGURE_SIZE",
     "build_academic_figure_prompt",
-    "compress_reference_knowledge",
     "infer_figure_profile",
     "resolve_figure_size",
     "resolve_figure_size_for_kind",

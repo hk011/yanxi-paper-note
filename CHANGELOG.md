@@ -4,6 +4,22 @@
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-05-25
+
+### Added
+
+- 自定义模型（OpenAI 兼容）经千帆 MCP / REST 联网搜索，可用于笔记生成、论文问答、小节润色
+- 千帆 MCP 配置项（`web_search_mcp_server` / `web_search_mcp_server_key`）与前端「可联网」状态展示
+- 自定义模型每环节最多 2 次联网调用，控制配额消耗
+- 小节配图：多模态 LLM 优化 Seedream 提示词（`figure_optimizer`），默认 16:9，强调图内英文标注
+- 小节润色：默认带上本节已有图片，支持上传/粘贴参考图；自定义模型不支持识图时给出提示
+
+### Fixed
+
+- 笔记 `gen_figure` / 小节配图提示词模板与工具描述对齐（去掉「参考知识」、布局与图内文字规则）
+- 联网搜索结果前端展示：解析 MCP 返回的 `results`、补全 `tool_delta` 转发与历史消息还原
+- 配置热更新：移除 `get_settings` 缓存，`.env` 保存后无需重启即可识别 MCP Key
+
 ## [0.0.3] - 2026-05-24
 
 ### Added

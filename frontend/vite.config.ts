@@ -11,6 +11,7 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
-    allowedHosts: ['all'],
+    allowedHosts: ['all', '.trycloudflare.com'],
+    host: '0.0.0.0',
   },
 });

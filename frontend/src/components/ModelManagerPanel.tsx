@@ -5,9 +5,13 @@ import { api, type UserCustomModel } from "../api/client";
 
 interface Props {
   onChanged?: () => void;
+  mcpSearchAvailable?: boolean;
 }
 
-export default function ModelManagerPanel({ onChanged }: Props) {
+export default function ModelManagerPanel({
+  onChanged,
+  mcpSearchAvailable = false,
+}: Props) {
   const [items, setItems] = useState<UserCustomModel[]>([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -67,7 +71,17 @@ export default function ModelManagerPanel({ onChanged }: Props) {
     <div className="model-manager-panel">
       <p className="model-manager-hint">
         添加 OpenAI 兼容接口（如 DeepSeek、OpenAI 等）。API Key 仅保存在服务端，不会返回给浏览器。
-        自定义模型<strong>不支持联网搜索</strong>，笔记生成时也不会调用联网检索。
+        {mcpSearchAvailable ? (
+          <>
+            已在服务端配置千帆 MCP 联网搜索，自定义模型可用于<strong>笔记生成</strong>、
+            <strong>论文问答</strong>与<strong>小节润色</strong>（通过 web_search 工具）。
+          </>
+        ) : (
+          <>
+            未配置 <code>web_search_mcp_server_key</code> 时，自定义模型<strong>无法联网</strong>；
+            配置后可用于笔记生成、问答与润色。
+          </>
+        )}
       </p>
 
       <Form form={form} layout="vertical" onFinish={() => void onCreate()}>
@@ -124,7 +138,11 @@ export default function ModelManagerPanel({ onChanged }: Props) {
               description={
                 <>
                   {item.api_url}
-                  <span className="model-manager-no-search"> · 不支持联网搜索</span>
+                  {mcpSearchAvailable ? (
+                    <span className="model-switcher-mcp-search-tag"> · 可联网（MCP）</span>
+                  ) : (
+                    <span className="model-manager-no-search"> · 需配置 MCP 后联网</span>
+                  )}
                 </>
               }
             />

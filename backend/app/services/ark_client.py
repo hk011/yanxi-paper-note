@@ -22,13 +22,13 @@ GEN_FIGURE_TOOL = {
             "prompt": {
                 "type": "string",
                 "description": (
-                    "按模板组装的完整中文提示：图的类型+展示内容+布局+风格+引号内标签+参考知识。"
-                    "勿超过约 300 汉字。"
+                    "完整中文文生图提示词：画面类型、16:9 构图、布局细节、风格配色；"
+                    "各区域须配文字说明，图内文字用英文双引号写出；约 200–400 字。"
                 ),
             },
             "figure_kind": {
                 "type": "string",
-                "description": "可选，帮助系统选择宽高比",
+                "description": "已废弃，系统统一 16:9，可不填",
                 "enum": [
                     "infographic",
                     "architecture",

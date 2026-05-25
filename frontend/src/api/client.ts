@@ -103,6 +103,8 @@ export interface ModelOption {
 export interface ModelListResponse {
   models: ModelOption[];
   default_model: string;
+  /** 千帆 MCP 联网搜索已配置时，自定义模型可开启联网 */
+  mcp_search_available: boolean;
 }
 
 export interface UserCustomModel {
@@ -116,6 +118,8 @@ export interface ChatConfig {
   models: ModelOption[];
   default_model: string;
   context_limit: number;
+  /** 千帆 MCP 联网搜索是否已配置（自定义模型可用） */
+  mcp_search_available: boolean;
 }
 
 export interface ChatSuggestion {
@@ -192,6 +196,7 @@ export interface NoteSectionRefinePayload {
   model?: string;
   enable_thinking?: boolean;
   enable_search?: boolean;
+  attachments?: { path: string; name: string }[];
 }
 
 export const api = {

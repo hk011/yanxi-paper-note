@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app.schemas.chat import ChatAttachmentIn
 
 
 class PaperSummary(BaseModel):
@@ -63,6 +65,7 @@ class NoteSectionRefineBody(BaseModel):
     model: str = ""
     enable_thinking: bool = True
     enable_search: bool = False
+    attachments: list[ChatAttachmentIn] = Field(default_factory=list)
 
 
 class NoteVersionSummary(BaseModel):

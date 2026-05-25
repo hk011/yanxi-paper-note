@@ -10,47 +10,16 @@ import type {
   TimelineItem,
   ToolTraceItem,
 } from "../types/events";
+import {
+  extractHitsFromToolOutput,
+  mergeSearchHits,
+} from "../utils/searchHits";
 
-function extractHitsFromOutput(output: unknown): unknown[] {
-  if (!output || typeof output !== "object") return [];
-  const obj = output as Record<string, unknown>;
-  const action = (obj.action as Record<string, unknown> | undefined) || {};
-  const refs = action.sources || action.results;
-  if (Array.isArray(refs) && refs.length > 0) return refs;
-  const url =
-    (obj.url as string) ||
-    (obj.link as string) ||
-    (action.url as string) ||
-    (action.link as string);
-  if (typeof url === "string" && url.startsWith("http")) {
-    return [
-      {
-        url,
-        title: (obj.title as string) || (action.title as string) || url,
-        snippet: (obj.snippet as string) || (action.snippet as string) || "",
-      },
-    ];
-  }
-  return [];
-}
-
-function mergeHits(existing: unknown[] | undefined, incoming: unknown[] | undefined) {
-  if (!incoming?.length) return existing;
-  if (!existing?.length) return incoming;
-  const seen = new Set<string>();
-  const merged: unknown[] = [];
-  for (const hit of [...existing, ...incoming]) {
-    if (!hit || typeof hit !== "object") continue;
-    const url =
-      (hit as Record<string, unknown>).url ||
-      (hit as Record<string, unknown>).link ||
-      (hit as Record<string, unknown>).source_url;
-    const key = typeof url === "string" ? url : JSON.stringify(hit);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push(hit);
-  }
-  return merged;
+function mergeHits(
+  existing: unknown[] | undefined,
+  incoming: unknown[] | undefined
+) {
+  return mergeSearchHits(existing, incoming);
 }
 
 function matchesWebSearchTarget(
@@ -523,7 +492,7 @@ export function useStreamEvents(storageKey?: string) {
                 }
               })()
             : (ev.output as Record<string, unknown> | null);
-        const outputHits = extractHitsFromOutput(parsedOutput ?? ev.output);
+        const outputHits = extractHitsFromToolOutput(parsedOutput ?? ev.output);
         const matchesToolEnd = (t: {
           callId?: string;
           key?: string;

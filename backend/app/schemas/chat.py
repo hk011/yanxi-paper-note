@@ -13,6 +13,7 @@ class ChatConfigOut(BaseModel):
     models: list[ModelOptionOut]
     default_model: str
     context_limit: int = 256_000
+    mcp_search_available: bool = False
 
 
 class ChatSuggestionItem(BaseModel):

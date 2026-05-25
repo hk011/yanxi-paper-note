@@ -31,6 +31,8 @@ def list_available_models(
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_session)],
 ):
+    from app.services.web_search import web_search_configured
+
     options = list_model_options(session, user.id)
     return ModelListOut(
         models=[
@@ -38,6 +40,7 @@ def list_available_models(
             for opt in options
         ],
         default_model=default_model_key(session, user.id),
+        mcp_search_available=web_search_configured(),
     )
 
 
