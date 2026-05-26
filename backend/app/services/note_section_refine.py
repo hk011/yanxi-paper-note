@@ -26,7 +26,7 @@ from app.services.multimodal_input import (
     model_supports_vision,
     resolve_attachment_paths,
 )
-from app.services.note_sections import find_section_range, replace_section_body
+from app.services.note_sections import find_action_section_range, replace_section_body
 
 
 def _strip_section_heading(text: str, heading: str) -> str:
@@ -106,7 +106,7 @@ async def run_section_refine(
         raise FileNotFoundError("解读笔记尚未生成")
 
     raw = note_path.read_text(encoding="utf-8")
-    _, _, section_body = find_section_range(raw, heading)
+    _, _, section_body, scope_heading = find_action_section_range(raw, heading)
     inst = (instruction or "").strip()
     if not inst:
         raise ValueError("请填写润色要求")
@@ -133,7 +133,7 @@ async def run_section_refine(
         )
 
     user_text = _build_refine_user_text(
-        heading=heading,
+        heading=scope_heading,
         section_body=section_body,
         instruction=inst,
         image_count=len(all_paths),
@@ -208,7 +208,7 @@ async def run_section_refine(
 
     refined_body = _strip_section_heading(
         (refined or "".join(content_parts)).strip(),
-        heading,
+        scope_heading,
     )
     if not refined_body:
         await emit(
@@ -220,14 +220,14 @@ async def run_section_refine(
         await emit(StreamEvent(type="done", data={}))
         return
 
-    merged = replace_section_body(raw, heading, refined_body)
+    merged = replace_section_body(raw, scope_heading, refined_body)
 
     await emit(
         StreamEvent(
             type="status",
             data={
                 "status": "refined",
-                "heading": heading,
+                "heading": scope_heading,
                 "merged_content": merged,
                 "model": endpoint.key,
             },

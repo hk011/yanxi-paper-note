@@ -5,6 +5,7 @@ import {
 } from "../constants/noteSections";
 import type {
   NotePipelinePhase,
+  NotePipelineState,
   SectionRunStatus,
   StreamEvent,
   TimelineItem,
@@ -40,14 +41,7 @@ function resolveTimelineKey(ev: StreamEvent): string {
   return "default";
 }
 
-interface StoredPipelineState {
-  timeline: TimelineItem[];
-  sectionTimelines: Record<string, TimelineItem[]>;
-  sectionProgress: Record<string, SectionRunStatus>;
-  pipelinePhase: NotePipelinePhase;
-  outlineStatus: SectionRunStatus;
-  finalStatus: SectionRunStatus;
-}
+type StoredPipelineState = NotePipelineState;
 
 function emptyPipelineState(): StoredPipelineState {
   return {
@@ -105,6 +99,20 @@ function normalizeCompletedPipelineState(
 function savePipelineState(storageKey: string | undefined, state: StoredPipelineState) {
   if (!storageKey) return;
   localStorage.setItem(storageKey, JSON.stringify(state));
+}
+
+function pipelineHasTrace(
+  outlineStatus: SectionRunStatus,
+  finalStatus: SectionRunStatus,
+  sectionProgress: Record<string, SectionRunStatus>,
+  sectionTimelines: Record<string, TimelineItem[]>
+) {
+  return (
+    outlineStatus !== "pending" ||
+    finalStatus !== "pending" ||
+    Object.values(sectionProgress).some((status) => status !== "pending") ||
+    Object.values(sectionTimelines).some((items) => items.length > 0)
+  );
 }
 
 export function useStreamEvents(storageKey?: string) {
@@ -175,29 +183,50 @@ export function useStreamEvents(storageKey?: string) {
     [persistPipelineState, storageKey]
   );
 
+  const applyPipelineState = useCallback(
+    (next: StoredPipelineState) => {
+      const normalized = normalizeCompletedPipelineState({
+        ...emptyPipelineState(),
+        ...next,
+        sectionProgress: {
+          ...createInitialSectionProgress(),
+          ...(next.sectionProgress || {}),
+        },
+      });
+      toolsRef.current = [];
+      timelineRef.current = normalized.timeline;
+      sectionTimelinesRef.current = { ...normalized.sectionTimelines };
+      setThinking("");
+      setTools([]);
+      setTimeline(normalized.timeline);
+      setPipelinePhase(normalized.pipelinePhase);
+      setOutlineStatus(normalized.outlineStatus);
+      setFinalStatus(normalized.finalStatus);
+      setSectionProgress(normalized.sectionProgress);
+      setSectionTimelines(normalized.sectionTimelines);
+      pipelineStateRef.current = {
+        sectionProgress: normalized.sectionProgress,
+        pipelinePhase: normalized.pipelinePhase,
+        outlineStatus: normalized.outlineStatus,
+        finalStatus: normalized.finalStatus,
+      };
+      if (storageKey) {
+        savePipelineState(storageKey, {
+          timeline: timelineRef.current,
+          sectionTimelines: sectionTimelinesRef.current,
+          ...pipelineStateRef.current,
+        });
+      }
+    },
+    [storageKey]
+  );
+
   const switchPaper = useCallback(() => {
-    const next = loadPipelineState(storageKey);
-    toolsRef.current = [];
-    timelineRef.current = next.timeline;
-    sectionTimelinesRef.current = { ...next.sectionTimelines };
-    setThinking("");
-    setTools([]);
-    setTimeline(next.timeline);
+    applyPipelineState(loadPipelineState(storageKey));
     setContent("");
     setStatus("");
     setSection("");
-    setPipelinePhase(next.pipelinePhase);
-    setOutlineStatus(next.outlineStatus);
-    setFinalStatus(next.finalStatus);
-    setSectionProgress(next.sectionProgress);
-    setSectionTimelines(next.sectionTimelines);
-    pipelineStateRef.current = {
-      sectionProgress: next.sectionProgress,
-      pipelinePhase: next.pipelinePhase,
-      outlineStatus: next.outlineStatus,
-      finalStatus: next.finalStatus,
-    };
-  }, [storageKey]);
+  }, [applyPipelineState, storageKey]);
 
   useEffect(() => {
     if (storageKeyRef.current === storageKey) return;
@@ -265,6 +294,22 @@ export function useStreamEvents(storageKey?: string) {
     finalizeAllTimelines();
     persistPipelineState();
   }, [finalizeAllTimelines, persistPipelineState]);
+
+  /** 已有笔记但 localStorage 无过程记录时，补齐完成态以便展示生成过程栏 */
+  const hydrateCompletedNote = useCallback(() => {
+    const ps = pipelineStateRef.current;
+    if (
+      pipelineHasTrace(
+        ps.outlineStatus,
+        ps.finalStatus,
+        ps.sectionProgress,
+        sectionTimelinesRef.current
+      )
+    ) {
+      return;
+    }
+    markPipelineComplete();
+  }, [markPipelineComplete]);
 
   const initPipelineProgress = useCallback(() => {
     const sectionProgress = createInitialSectionProgress();
@@ -588,6 +633,8 @@ export function useStreamEvents(storageKey?: string) {
     sectionTimelines,
     reset,
     switchPaper,
+    applyPipelineState,
+    hydrateCompletedNote,
     handleEvent,
     setContent,
     noteSections: NOTE_SECTIONS,

@@ -53,6 +53,9 @@ FIGURE_IN_IMAGE_TEXT_RULE = (
     "所有图内文字（中文、英文、公式片段）必须用英文双引号 \"...\" 逐字写出。"
 )
 
+# 中文笔记场景：图内标注语言（工具描述与 Seedream 兜底共用）
+FIGURE_PRIMARY_LANGUAGE_RULE = "图内文字以中文为主，专有名词、公式符号等可用英文。"
+
 GEN_FIGURE_TOOL_DESC = f"""生成论文解读笔记配图（Seedream，固定 16:9）。优先引用论文已有原图；仅当需要更直观示意时再生成。
 
 调用前请你分析：什么样的图最能帮助读者理解**当前正在讨论的论文内容**。
@@ -60,8 +63,9 @@ GEN_FIGURE_TOOL_DESC = f"""生成论文解读笔记配图（Seedream，固定 16
 `prompt` 参数必须是**完整、可直接交给文生图模型**的中文提示词：
 1. 高信息密度：画面类型、16:9 构图、整体布局（分区、箭头、流向、主次）、风格配色、各区域画什么。
 2. 整份笔记配图可采用生动、易懂、适度拟人化/比喻的视觉表达（信息仍须准确）。
-3. {FIGURE_IN_IMAGE_TEXT_RULE}
-4. 不要写「参考知识」段，不要粘贴大段原文；建议 200–400 字。
+3. {FIGURE_PRIMARY_LANGUAGE_RULE}
+4. {FIGURE_IN_IMAGE_TEXT_RULE}
+5. 不要写「参考知识」段，不要粘贴大段原文；建议 200–400 字。
 
 可选 `ref_image_path`：论文相关原图本地路径（如 images/xxx.jpg），用于构图参考。
 无需填写 `figure_kind`（系统统一 16:9）。"""
@@ -222,6 +226,8 @@ def enhance_figure_prompt(user_prompt: str) -> str:
     extras: list[str] = []
     if "16:9" not in text and "16：9" not in text:
         extras.append("构图比例 16:9，适配笔记排版。")
+    if "中文为主" not in text and "中文" not in text[:80]:
+        extras.append(FIGURE_PRIMARY_LANGUAGE_RULE)
     if "文字" not in text and '"' not in text:
         extras.append(FIGURE_IN_IMAGE_TEXT_RULE)
     elif '"' not in text:

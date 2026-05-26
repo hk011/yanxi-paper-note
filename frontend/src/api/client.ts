@@ -1,4 +1,4 @@
-import type { StreamEvent } from "../types/events";
+import type { NotePipelineState, StreamEvent } from "../types/events";
 
 const TOKEN_KEY = "yanxi_token";
 
@@ -278,6 +278,19 @@ export const api = {
     });
     if (!res.ok) throw new Error("解读笔记未就绪");
     return res.text();
+  },
+
+  fetchNoteGenerationTrace: async (id: number): Promise<NotePipelineState | null> => {
+    const token = getToken();
+    const res = await fetch(`/api/papers/${id}/note/generation-trace`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || "请求失败");
+    }
+    return res.json() as Promise<NotePipelineState>;
   },
 
   updateNote: (id: number, content: string) =>

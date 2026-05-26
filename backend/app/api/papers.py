@@ -334,6 +334,26 @@ def get_note(
     )
 
 
+@router.get("/{paper_id}/note/generation-trace")
+def get_note_generation_trace(
+    paper_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_session)],
+):
+    from fastapi import HTTPException
+
+    from app.services.note_generation_trace import load_generation_trace
+
+    paper = session.get(Paper, paper_id)
+    if not paper or paper.user_id != user.id:
+        raise HTTPException(404, "论文不存在")
+    data_dir = paper_data_dir(user.id, paper_id)
+    trace = load_generation_trace(data_dir)
+    if not trace:
+        raise HTTPException(404, "生成过程记录不存在")
+    return trace
+
+
 @router.put("/{paper_id}/note")
 def update_note(
     paper_id: int,

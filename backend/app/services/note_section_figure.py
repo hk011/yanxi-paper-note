@@ -15,7 +15,7 @@ from app.services.figure_prompt_optimizer import optimize_section_figure_prompt
 from app.services.mineru import paper_data_dir
 from app.services.note_refine import apply_refined_note
 from app.services.note_sections import (
-    find_section_range,
+    find_action_section_range,
     insert_figure_after_heading,
     next_gen_image_rel,
 )
@@ -37,22 +37,24 @@ async def add_figure_to_section(
         raise FileNotFoundError("解读笔记尚未生成")
 
     raw = note_path.read_text(encoding="utf-8")
-    _, _, body = find_section_range(raw, heading)
+    _, _, body, scope_heading = find_action_section_range(raw, heading)
 
     optimizer_used = True
     try:
         prompt = await optimize_section_figure_prompt(
             data_dir=data_dir,
-            heading=heading,
+            heading=scope_heading,
             section_body=body,
             user_instruction=instruction,
         )
     except Exception as e:
         optimizer_used = False
         logger.warning("小节配图多模态优化失败，使用规则兜底: %s", e)
-        profile = infer_figure_profile(heading, f"{body} {(instruction or '').strip()}")
+        profile = infer_figure_profile(
+            scope_heading, f"{body} {(instruction or '').strip()}"
+        )
         prompt = build_academic_figure_prompt(
-            heading=heading,
+            heading=scope_heading,
             instruction=instruction,
             profile=profile,
             section_body=body,
@@ -62,7 +64,7 @@ async def add_figure_to_section(
     logger.info(
         "小节配图 prompt paper=%s section=%s optimizer=%s file=%s prompt=%s",
         paper_id,
-        heading,
+        scope_heading,
         optimizer_used,
         rel,
         prompt[:500],
@@ -86,7 +88,7 @@ async def add_figure_to_section(
                 meta_json=json.dumps(
                     {
                         "prompt": result.get("prompt", prompt),
-                        "section": heading,
+                        "section": scope_heading,
                         "optimizer": optimizer_used,
                     },
                     ensure_ascii=False,
@@ -95,11 +97,13 @@ async def add_figure_to_section(
         )
         session.commit()
 
-    merged = insert_figure_after_heading(raw, heading, rel, alt=heading)
+    merged = insert_figure_after_heading(
+        raw, scope_heading, rel, alt=scope_heading
+    )
     saved = apply_refined_note(
         paper_id=paper_id,
         user_id=user_id,
         content=merged,
         model="section_figure",
     )
-    return {**saved, "image_path": rel, "heading": heading}
+    return {**saved, "image_path": rel, "heading": scope_heading}

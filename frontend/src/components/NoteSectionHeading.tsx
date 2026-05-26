@@ -14,7 +14,7 @@ function extractPlainText(node: ReactNode): string {
 }
 
 interface SectionHeadingProps {
-  level: 3 | 4;
+  level: 2 | 3;
   children?: ReactNode;
   className?: string;
   id?: string;
@@ -34,7 +34,7 @@ export default function NoteSectionHeading({
   loadingHeading,
   showActions,
 }: SectionHeadingProps) {
-  const Tag = level === 3 ? "h3" : "h4";
+  const Tag = level === 2 ? "h2" : "h3";
   const title = extractPlainText(children).trim();
   const canAct = showActions && title;
   const figureLoading = loadingHeading != null && loadingHeading === title;
@@ -47,7 +47,13 @@ export default function NoteSectionHeading({
       {canAct ? (
         <span className="note-section-heading-actions">
           {onAddFigure ? (
-            <Tooltip title="为本小节生成通俗配图并插入笔记">
+            <Tooltip
+              title={
+                level === 2
+                  ? "为本章（含下属三级标题）生成配图并插入笔记"
+                  : "为本小节生成通俗配图并插入笔记"
+              }
+            >
               <Button
                 type="text"
                 size="small"
@@ -61,7 +67,13 @@ export default function NoteSectionHeading({
             </Tooltip>
           ) : null}
           {onRefineSection ? (
-            <Tooltip title="按你的要求润色本节正文">
+            <Tooltip
+              title={
+                level === 2
+                  ? "按你的要求润色本章正文（含下属三级标题）"
+                  : "按你的要求润色本小节正文"
+              }
+            >
               <Button
                 type="text"
                 size="small"

@@ -34,6 +34,10 @@ from app.services.content_builder import (
 from app.services.llm import run_with_tool_loop as llm_run_with_tool_loop
 from app.services.model_registry import ModelEndpoint, resolve_model
 from app.services.mineru import paper_data_dir
+from app.services.note_generation_trace import (
+    NoteGenerationTraceCollector,
+    delete_generation_trace,
+)
 from app.prompts.image_gen import NOTE_FIGURE_SIZE
 from app.services.tools.image_gen import format_tool_output, generate_figure
 
@@ -147,24 +151,26 @@ async def _run_note_pipeline_body(
     outline_tools = search_tools if search_tools else None
     note_tools = list(search_tools) + [GEN_FIGURE_TOOL]
 
-    await _emit(
-        paper_id,
-        StreamEvent(type="status", data={"status": "noting", "phase": "outline"}),
-    )
+    if regenerate or not note_path.exists():
+        note_path.write_text("", encoding="utf-8")
+        delete_generation_trace(data_dir)
 
-    async def emit(ev: StreamEvent) -> None:
+    trace_collector = NoteGenerationTraceCollector()
+
+    async def pipeline_emit(ev: StreamEvent) -> None:
+        trace_collector.record(ev)
         await _emit(paper_id, ev)
 
     async def append_note(delta: str) -> None:
         with note_path.open("a", encoding="utf-8") as f:
             f.write(delta)
 
-    if regenerate or not note_path.exists():
-        note_path.write_text("", encoding="utf-8")
+    await pipeline_emit(
+        StreamEvent(type="status", data={"status": "noting", "phase": "outline"}),
+    )
 
     # ── 阶段一：大纲 ──
-    await _emit(
-        paper_id,
+    await pipeline_emit(
         StreamEvent(
             type="status",
             data={
@@ -192,7 +198,7 @@ async def _run_note_pipeline_body(
         outline_parts.append(delta)
 
     async def outline_emit(ev: StreamEvent) -> None:
-        await emit(_enrich_event(ev, phase="outline"))
+        await pipeline_emit(_enrich_event(ev, phase="outline"))
 
     outline_text = await llm_run_with_tool_loop(
         endpoint=endpoint,
@@ -208,8 +214,7 @@ async def _run_note_pipeline_body(
     )
     outline = outline_text or "".join(outline_parts)
 
-    await _emit(
-        paper_id,
+    await pipeline_emit(
         StreamEvent(
             type="status",
             data={
@@ -250,16 +255,14 @@ async def _run_note_pipeline_body(
         return format_tool_output(result, paper_id)
 
     # ── 阶段二：并行分章节起草 ──
-    await _emit(
-        paper_id,
+    await pipeline_emit(
         StreamEvent(
             type="status",
             data={"status": "noting", "phase": "draft"},
         ),
     )
     for section in SECTION_DEFS:
-        await _emit(
-            paper_id,
+        await pipeline_emit(
             StreamEvent(
                 type="status",
                 data={
@@ -279,8 +282,7 @@ async def _run_note_pipeline_body(
         section_title = section["title"]
 
         async with semaphore:
-            await _emit(
-                paper_id,
+            await pipeline_emit(
                 StreamEvent(
                     type="status",
                     data={
@@ -294,7 +296,7 @@ async def _run_note_pipeline_body(
             )
 
             async def section_emit(ev: StreamEvent) -> None:
-                await emit(
+                await pipeline_emit(
                     _enrich_event(ev, phase="draft", section_id=section_id)
                 )
 
@@ -333,8 +335,7 @@ async def _run_note_pipeline_body(
                     enable_thinking=use_thinking,
                 )
                 draft = section_text or "".join(draft_parts)
-                await _emit(
-                    paper_id,
+                await pipeline_emit(
                     StreamEvent(
                         type="status",
                         data={
@@ -348,8 +349,7 @@ async def _run_note_pipeline_body(
                 )
                 return section_id, section_title, draft.strip()
             except Exception as e:
-                await _emit(
-                    paper_id,
+                await pipeline_emit(
                     StreamEvent(
                         type="status",
                         data={
@@ -374,8 +374,7 @@ async def _run_note_pipeline_body(
             section_drafts.append(f"## {section_title}\n{draft}")
 
     # ── 阶段三：统一综合重写，流式输出最终笔记 ──
-    await _emit(
-        paper_id,
+    await pipeline_emit(
         StreamEvent(
             type="status",
             data={
@@ -407,7 +406,7 @@ async def _run_note_pipeline_body(
     ]
 
     async def final_emit(ev: StreamEvent) -> None:
-        await emit(_enrich_event(ev, phase="final"))
+        await pipeline_emit(_enrich_event(ev, phase="final"))
 
     final_tool_handler = wrap_tool_handler_with_web_search(
         _note_tool_core, emit=final_emit, endpoint=endpoint
@@ -423,8 +422,7 @@ async def _run_note_pipeline_body(
         enable_thinking=use_thinking,
     )
 
-    await _emit(
-        paper_id,
+    await pipeline_emit(
         StreamEvent(
             type="status",
             data={
@@ -435,6 +433,8 @@ async def _run_note_pipeline_body(
             },
         ),
     )
+
+    trace_collector.save(data_dir)
 
     # 后处理图片路径并入库
     raw = note_path.read_text(encoding="utf-8")
@@ -467,8 +467,8 @@ async def _run_note_pipeline_body(
             )
         session.commit()
 
-    await emit(StreamEvent(type="status", data={"status": "done"}))
-    await emit(StreamEvent(type="done", data={}))
+    await pipeline_emit(StreamEvent(type="status", data={"status": "done"}))
+    await pipeline_emit(StreamEvent(type="done", data={}))
 
     from app.services.parse_worker import get_parse_queue
 

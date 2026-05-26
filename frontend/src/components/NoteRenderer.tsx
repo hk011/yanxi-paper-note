@@ -149,7 +149,7 @@ export default function NoteRenderer({
   );
 
   const makeHeading = useCallback(
-    (level: 3 | 4) =>
+    (level: 2 | 3) =>
       function SectionHeadingComponent(props: Record<string, unknown>) {
         return (
           <NoteSectionHeading
@@ -172,8 +172,8 @@ export default function NoteRenderer({
     () => ({
       ...STATIC_COMPONENTS,
       img: renderImage,
+      h2: makeHeading(2),
       h3: makeHeading(3),
-      h4: makeHeading(4),
     }),
     [renderImage, makeHeading]
   );

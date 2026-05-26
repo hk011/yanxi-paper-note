@@ -126,6 +126,8 @@ export default function PaperPage() {
     setContent: setNoteContent,
     reset: resetStream,
     switchPaper: switchPaperStream,
+    applyPipelineState,
+    hydrateCompletedNote,
     handleEvent,
     content: noteContent,
     pipelinePhase,
@@ -188,9 +190,14 @@ export default function PaperPage() {
       if (!refreshNote) return;
       if (p.has_note && (p.status === "done" || p.status === "noting")) {
         try {
-          const note = await api.fetchNote(id);
-          if (activePaperIdRef.current === id) {
-            setNoteContent((current) => (current === note ? current : note));
+          const notePromise = api.fetchNote(id);
+          const tracePromise =
+            p.status === "done" ? api.fetchNoteGenerationTrace(id) : Promise.resolve(null);
+          const [note, trace] = await Promise.all([notePromise, tracePromise]);
+          if (activePaperIdRef.current !== id) return;
+          setNoteContent((current) => (current === note ? current : note));
+          if (trace) {
+            applyPipelineState(trace);
           }
         } catch {
           if (activePaperIdRef.current === id) setNoteContent("");
@@ -199,7 +206,7 @@ export default function PaperPage() {
         setNoteContent("");
       }
     },
-    [paperId, setNoteContent]
+    [applyPipelineState, paperId, setNoteContent]
   );
 
   useEffect(() => {
@@ -217,6 +224,22 @@ export default function PaperPage() {
       message.error(e instanceof Error ? e.message : "加载失败")
     );
   }, [paperId, switchPaperStream, loadPaper]);
+
+  useEffect(() => {
+    if (!paper?.has_note) return;
+    if (paper.status === "noting" || regenerating) return;
+    const hasDetailedTrace = Object.values(sectionTimelines).some(
+      (items) => items.length > 0
+    );
+    if (hasDetailedTrace) return;
+    hydrateCompletedNote();
+  }, [
+    paper?.has_note,
+    paper?.status,
+    regenerating,
+    sectionTimelines,
+    hydrateCompletedNote,
+  ]);
 
   useEffect(() => {
     api
@@ -445,7 +468,7 @@ export default function PaperPage() {
         setPaper((p) =>
           p ? { ...p, has_note: true, note_version: result.note_version } : p
         );
-        message.success(`已为「${heading}」添加配图`);
+        message.success(`已为「${result.heading || heading}」添加配图`);
         setFigureModalHeading(null);
       } catch (e) {
         message.error(e instanceof Error ? e.message : "配图失败");

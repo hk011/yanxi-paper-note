@@ -66,3 +66,13 @@ export interface TimelineItem {
   output?: unknown;
   hits?: unknown[];
 }
+
+/** 笔记生成流水线持久化状态（localStorage / 后端 JSON 文件共用） */
+export interface NotePipelineState {
+  timeline: TimelineItem[];
+  sectionTimelines: Record<string, TimelineItem[]>;
+  sectionProgress: Record<string, SectionRunStatus>;
+  pipelinePhase: NotePipelinePhase;
+  outlineStatus: SectionRunStatus;
+  finalStatus: SectionRunStatus;
+}

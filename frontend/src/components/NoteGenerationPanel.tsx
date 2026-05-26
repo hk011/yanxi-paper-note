@@ -136,7 +136,9 @@ export default function NoteGenerationPanel({
       : pipelinePhase === "final"
         ? "笔记生成中 · 正在综合生成最终笔记"
         : `笔记生成中 · 章节草稿 ${doneSectionCount}/${sections.length}`
-    : `笔记生成过程 · 已完成 · 大纲 + ${sections.length} 章并行 + 综合重写 · ${totalSteps} 步`;
+    : totalSteps > 0
+      ? `笔记生成过程 · 已完成 · 大纲 + ${sections.length} 章并行 + 综合重写 · ${totalSteps} 步`
+      : `笔记生成过程 · 已完成 · 大纲 + ${sections.length} 章并行 + 综合重写（详细步骤未保存）`;
 
   return (
     <div className={`note-generation-panel${open ? " is-open" : ""}${active ? " is-active" : ""}`}>

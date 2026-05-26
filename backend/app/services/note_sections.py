@@ -94,6 +94,30 @@ def remove_all_image_markdown(content: str, rel: str) -> tuple[str, int]:
     return "\n".join(kept), removed
 
 
+def lookup_heading(content: str, heading: str) -> tuple[str, int]:
+    """返回文档中的标题原文与层级（# 数量）。"""
+    target = _normalize_heading(heading)
+    for line in content.splitlines():
+        parsed = _parse_heading(line)
+        if not parsed:
+            continue
+        level, text = parsed
+        if _normalize_heading(text) == target:
+            return text, level
+    raise ValueError(f"未找到小节：{heading}")
+
+
+def find_action_section_range(
+    content: str, heading: str
+) -> tuple[int, int, str, str]:
+    """以用户点击的标题为范围：## 整章（含下属 ###），### 仅本小节。"""
+    scope, level = lookup_heading(content, heading)
+    if level not in (2, 3):
+        raise ValueError(f"仅支持二、三级标题操作：{heading}")
+    start, end, body = find_section_range(content, scope)
+    return start, end, body, scope
+
+
 def find_section_range(content: str, heading: str) -> tuple[int, int, str]:
     """返回 (start_line, end_line_exclusive, section_body)。"""
     target = _normalize_heading(heading)
