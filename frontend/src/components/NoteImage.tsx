@@ -3,15 +3,19 @@ import { buildAuthenticatedUrl, buildPaperFileUrl, getToken } from "../api/clien
 import { normalizeFigureRelPath } from "../utils/genFigure";
 import { acquireImageBlob, peekImageBlob } from "../utils/imageBlobCache";
 
-function resolveImageUrl(raw: string, paperId: number): string {
+function resolveImageUrl(
+  raw: string,
+  paperId: number,
+  cacheBust?: number | string
+): string {
   if (!raw) return raw;
   if (raw.startsWith("/api/")) return buildAuthenticatedUrl(raw);
   if (/^(https?:|data:|blob:)/i.test(raw)) return raw;
   if (/^\/(assets|images)\//i.test(raw)) {
-    return buildPaperFileUrl(paperId, raw.replace(/^\/+/, ""));
+    return buildPaperFileUrl(paperId, raw.replace(/^\/+/, ""), cacheBust);
   }
   if (raw.startsWith("/")) return buildAuthenticatedUrl(raw);
-  return buildPaperFileUrl(paperId, raw);
+  return buildPaperFileUrl(paperId, raw, cacheBust);
 }
 
 interface Props extends ImgHTMLAttributes<HTMLImageElement> {
@@ -20,6 +24,8 @@ interface Props extends ImgHTMLAttributes<HTMLImageElement> {
   eager?: boolean;
   /** 流式期间直接用鉴权 URL，避免 blob 反复 revoke/重建导致闪动 */
   useDirectSrc?: boolean;
+  /** 笔记版本等，用于配图 URL 缓存破除 */
+  cacheBust?: number | string;
   onPreview?: (src: string) => void;
   onLoadError?: () => void;
 }
@@ -30,13 +36,14 @@ function NoteImage({
   paperId,
   eager = false,
   useDirectSrc = false,
+  cacheBust,
   onPreview,
   onLoadError,
   className,
   alt,
   ...rest
 }: Props) {
-  const resolved = resolveImageUrl(rawSrc, paperId);
+  const resolved = resolveImageUrl(rawSrc, paperId, cacheBust);
   const cacheKey = useMemo(
     () => `${paperId}:${normalizeFigureRelPath(rawSrc)}`,
     [paperId, rawSrc]
@@ -70,6 +77,7 @@ function NoteImage({
     const { promise, release } = acquireImageBlob(cacheKey, async () => {
       const token = getToken();
       const res = await fetch(resolved, {
+        cache: "no-store",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) throw new Error(String(res.status));
@@ -91,7 +99,7 @@ function NoteImage({
       cancelled = true;
       release();
     };
-  }, [cacheKey, resolved, onLoadError, useDirectSrc]);
+  }, [cacheKey, resolved, onLoadError, useDirectSrc, cacheBust]);
 
   if (failed) {
     return null;
@@ -121,5 +129,6 @@ export default memo(
     prev.paperId === next.paperId &&
     prev.eager === next.eager &&
     prev.useDirectSrc === next.useDirectSrc &&
+    prev.cacheBust === next.cacheBust &&
     prev.className === next.className
 );

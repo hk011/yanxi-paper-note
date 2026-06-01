@@ -38,7 +38,6 @@ from app.services.note_generation_trace import (
     NoteGenerationTraceCollector,
     delete_generation_trace,
 )
-from app.prompts.image_gen import NOTE_FIGURE_SIZE
 from app.services.tools.image_gen import format_tool_output, generate_figure
 
 SECTION_CONCURRENCY = 4
@@ -72,6 +71,7 @@ async def run_note_pipeline(
     user_id: int,
     regenerate: bool = False,
     model_key: str = "",
+    image_model: str = "ark",
 ) -> None:
     engine = get_engine()
     endpoint: ModelEndpoint | None = None
@@ -88,7 +88,7 @@ async def run_note_pipeline(
 
     try:
         await _run_note_pipeline_body(
-            paper_id, user_id, regenerate, endpoint, engine
+            paper_id, user_id, regenerate, endpoint, engine, image_model
         )
     except Exception as e:
         with Session(engine) as session:
@@ -109,7 +109,12 @@ async def run_note_pipeline(
 
 
 async def _run_note_pipeline_body(
-    paper_id: int, user_id: int, regenerate: bool, endpoint: ModelEndpoint, engine
+    paper_id: int,
+    user_id: int,
+    regenerate: bool,
+    endpoint: ModelEndpoint,
+    engine,
+    image_model: str = "ark",
 ) -> None:
     paper_title = "论文"
     with Session(engine) as session:
@@ -236,7 +241,7 @@ async def _run_note_pipeline_body(
         if ref and not Path(ref).is_absolute():
             ref = str(mineru_dir / ref)
         result = await generate_figure(
-            prompt, assets_dir, ref, size=NOTE_FIGURE_SIZE
+            prompt, assets_dir, ref, image_model=image_model
         )
         with Session(engine) as session:
             session.add(
@@ -244,7 +249,10 @@ async def _run_note_pipeline_body(
                     paper_id=paper_id,
                     kind="ai_generated",
                     path=result["local_path"],
-                    meta_json=json.dumps({"prompt": prompt}, ensure_ascii=False),
+                    meta_json=json.dumps(
+                        {"prompt": prompt, "image_model": result.get("image_model", image_model)},
+                        ensure_ascii=False,
+                    ),
                 )
             )
             session.commit()

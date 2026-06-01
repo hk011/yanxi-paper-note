@@ -7,6 +7,7 @@ from app.core.auth import get_current_user
 from app.db.models import User, UserModel
 from app.db.session import get_session
 from app.schemas.model import (
+    ImageModelOptionOut,
     ModelListOut,
     ModelOptionOut,
     UserModelCreate,
@@ -18,6 +19,7 @@ from app.services.model_registry import (
     list_model_options,
     normalize_openai_base_url,
 )
+from app.services.tools.image_gen import list_image_model_options
 
 router = APIRouter(prefix="/api/models", tags=["models"])
 
@@ -41,6 +43,9 @@ def list_available_models(
         ],
         default_model=default_model_key(session, user.id),
         mcp_search_available=web_search_configured(),
+        image_models=[
+            ImageModelOptionOut(**item) for item in list_image_model_options()
+        ],
     )
 
 

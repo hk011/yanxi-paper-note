@@ -1,6 +1,6 @@
 """论文问答 System Prompt"""
 
-CHAT_FIGURE_CAPABILITY_ON = """- 可调用 gen_figure 生成说明配图（Seedream）；生成后务必在回答中用工具返回的 Markdown 路径引用图片（如 ![](assets/gen_001.png)），便于后续「融入笔记」"""
+CHAT_FIGURE_CAPABILITY_ON = """- 可调用 gen_figure 生成说明配图（文生图，16:9）；`prompt` 须为详细连贯段落（建议 600–1500 字），按整体概览→模块→连接→装饰组织；图内文字一律用中文双引号 “” 包裹并逐字写出（如 主标题"数据采集"），禁止使用「」；生成后务必在回答中用工具返回的 Markdown 路径引用图片（如 ![](assets/gen_001.png)），便于后续「融入笔记」"""
 
 CHAT_FIGURE_CAPABILITY_OFF = """- **不要**调用 gen_figure；若需配图，请引导用户在解读笔记对应小节标题旁使用「添加配图」"""
 

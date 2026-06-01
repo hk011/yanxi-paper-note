@@ -25,6 +25,7 @@ import {
 import {
   api,
   buildPaperPdfUrl,
+  ImageModelOption,
   ModelOption,
   PaperDetail,
   saveBlob,
@@ -33,7 +34,12 @@ import {
 } from "../api/client";
 import ChatPanel from "../components/ChatPanel";
 import MarkdownPreview from "../components/MarkdownPreview";
-import ModelSwitcher, { isCustomModel, modelLabel } from "../components/ModelSwitcher";
+import ModelSwitcher, { modelLabel } from "../components/ModelSwitcher";
+import ImageModelPicker, {
+  IMAGE_MODEL_KEY,
+  pickDefaultImageModel,
+  resolveImageModelOptions,
+} from "../components/ImageModelPicker";
 import NoteDiffModal from "../components/NoteDiffModal";
 import SectionFigureModal from "../components/SectionFigureModal";
 import SectionRefineModal from "../components/SectionRefineModal";
@@ -48,6 +54,7 @@ import { useStickToBottom } from "../hooks/useStickToBottom";
 import { useStreamDisplayContent } from "../hooks/useStreamDisplayContent";
 import ScrollToBottomButton from "../components/ScrollToBottomButton";
 import type { StreamEvent } from "../types/events";
+import { invalidatePaperFigureBlob } from "../utils/imageBlobCache";
 import { formatElapsed } from "../utils/formatElapsed";
 import { printNoteArea } from "../utils/printNote";
 
@@ -111,8 +118,10 @@ export default function PaperPage() {
   const refineAbortRef = useRef<(() => void) | null>(null);
   const refineContentRef = useRef("");
   const [noteModels, setNoteModels] = useState<ModelOption[]>([]);
+  const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
   const [mcpSearchAvailable, setMcpSearchAvailable] = useState(false);
   const [noteModel, setNoteModel] = useState("");
+  const [imageModel, setImageModel] = useState("ark");
   const [generatingModelLabel, setGeneratingModelLabel] = useState("");
   const [sidebarPapers, setSidebarPapers] = useState<
     { id: number; title: string; status: string }[]
@@ -151,15 +160,21 @@ export default function PaperPage() {
     paper?.status === "parsed" ||
     regenerating;
 
+  const effectiveImageModels = resolveImageModelOptions(imageModels);
+
   useEffect(() => {
     void api.listModels().then((res) => {
       setNoteModels(res.models);
+      const resolved = resolveImageModelOptions(res.image_models);
+      setImageModels(resolved);
       setMcpSearchAvailable(Boolean(res.mcp_search_available));
       const saved = localStorage.getItem(NOTE_MODEL_KEY);
       const pick =
         (saved && res.models.some((m) => m.id === saved) && saved) ||
         res.default_model;
       setNoteModel(pick);
+      const savedImage = localStorage.getItem(IMAGE_MODEL_KEY);
+      setImageModel(pickDefaultImageModel(resolved, savedImage));
     }).catch(() => {
       /* 模型列表加载失败时仍允许使用内置默认项 */
     });
@@ -168,6 +183,11 @@ export default function PaperPage() {
   const handleNoteModelChange = useCallback((next: string) => {
     setNoteModel(next);
     localStorage.setItem(NOTE_MODEL_KEY, next);
+  }, []);
+
+  const handleImageModelChange = useCallback((next: string) => {
+    setImageModel(next);
+    localStorage.setItem(IMAGE_MODEL_KEY, next);
   }, []);
 
   const loadPaper = useCallback(
@@ -381,7 +401,7 @@ export default function PaperPage() {
       setNoteEditing(false);
       setNoteDraft("");
       setGeneratingModelLabel(modelLabel(noteModels, noteModel));
-      await api.regenerateNote(paperId, noteModel);
+      await api.regenerateNote(paperId, noteModel, imageModel);
       setRegenerating(true);
       setPaper((p) => (p ? { ...p, status: "noting", has_note: false } : p));
     } catch (e) {
@@ -444,6 +464,14 @@ export default function PaperPage() {
 
   const noteDisplayContent = useStreamDisplayContent(noteContent, noteStreaming, 50);
 
+  /** 笔记内配图路径签名：增删配图后 note_version 不变，用此驱动 Markdown/图片重渲染 */
+  const noteFigureSignature = useMemo(() => {
+    const imgs = [
+      ...noteDisplayContent.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g),
+    ].map((m) => m[1]);
+    return imgs.length > 0 ? imgs.join("|") : `len:${noteDisplayContent.length}`;
+  }, [noteDisplayContent]);
+
   const noteStickEnabled =
     pipelinePhase === "final" && finalStatus === "running";
 
@@ -462,13 +490,27 @@ export default function PaperPage() {
       if (sectionFigureLoading) return;
       setSectionFigureLoading(heading);
       try {
-        const result = await api.addSectionFigure(paperId, heading, instruction);
-        const saved = await api.fetchNote(paperId);
-        setNoteContent(saved);
+        const result = await api.addSectionFigure(
+          paperId,
+          heading,
+          instruction,
+          imageModel
+        );
+        invalidatePaperFigureBlob(paperId, result.image_path);
+        if (result.content) {
+          setNoteContent(result.content);
+        } else {
+          const saved = await api.fetchNote(paperId);
+          setNoteContent(saved);
+        }
         setPaper((p) =>
           p ? { ...p, has_note: true, note_version: result.note_version } : p
         );
-        message.success(`已为「${result.heading || heading}」添加配图`);
+        const modelLabel =
+          effectiveImageModels.find((m) => m.id === result.image_model)?.label ||
+          result.image_model ||
+          imageModel;
+        message.success(`已为「${result.heading || heading}」添加配图（${modelLabel}）`);
         setFigureModalHeading(null);
       } catch (e) {
         message.error(e instanceof Error ? e.message : "配图失败");
@@ -476,7 +518,7 @@ export default function PaperPage() {
         setSectionFigureLoading(null);
       }
     },
-    [paperId, sectionFigureLoading, setNoteContent]
+    [paperId, sectionFigureLoading, setNoteContent, imageModel, effectiveImageModels]
   );
 
   const handleDeleteFigure = useCallback(
@@ -485,8 +527,13 @@ export default function PaperPage() {
       setDeletingFigurePath(imagePath);
       try {
         const result = await api.deleteNoteFigure(paperId, imagePath);
-        const saved = await api.fetchNote(paperId);
-        setNoteContent(saved);
+        invalidatePaperFigureBlob(paperId, imagePath);
+        if (result.content) {
+          setNoteContent(result.content);
+        } else {
+          const saved = await api.fetchNote(paperId);
+          setNoteContent(saved);
+        }
         setPaper((p) =>
           p ? { ...p, has_note: true, note_version: result.note_version } : p
         );
@@ -706,9 +753,6 @@ export default function PaperPage() {
     paper.status === "done" ||
     paper.status === "parsed";
 
-  const customNoteModel = isCustomModel(noteModels, noteModel);
-  const customNoteSearchOk = customNoteModel && mcpSearchAvailable;
-
   const activeNoteModelLabel = isNoting
     ? generatingModelLabel || modelLabel(noteModels, noteModel)
     : paper.note_model_label;
@@ -749,8 +793,10 @@ export default function PaperPage() {
               </div>
             )}
             <NoteRenderer
+              key={noteFigureSignature}
               content={noteDisplayContent}
               paperId={paperId}
+              contentRevision={noteFigureSignature}
               streaming={noteStreaming}
               sectionActions={showSectionActions}
               onAddSectionFigure={(heading) => setFigureModalHeading(heading)}
@@ -768,27 +814,9 @@ export default function PaperPage() {
             {paper.status === "parsed" && !isParsing ? (
               <>
                 <p>解析已完成，可开始生成解读笔记。</p>
-                <div className="note-generate-actions">
-                  {noteModels.length > 0 ? (
-                    <ModelSwitcher
-                      models={noteModels}
-                      value={noteModel}
-                      onChange={handleNoteModelChange}
-                      compact
-                      mcpSearchAvailable={mcpSearchAvailable}
-                    />
-                  ) : null}
-                  <Button type="primary" onClick={() => void handleGenerateNote()}>
-                    生成解读笔记
-                  </Button>
-                </div>
-                {customNoteModel ? (
-                  <p className="note-generate-hint">
-                    {customNoteSearchOk
-                      ? "自定义模型已支持联网（千帆 MCP web_search 工具）与 gen_figure 配图"
-                      : "自定义模型可生成笔记；联网需在 .env 配置 web_search_mcp_server_key"}
-                  </p>
-                ) : null}
+                <Button type="primary" onClick={() => void handleGenerateNote()}>
+                  生成解读笔记
+                </Button>
               </>
             ) : (
               <p>{isParsing ? "解析完成后可生成解读笔记。" : "暂无笔记"}</p>
@@ -870,6 +898,16 @@ export default function PaperPage() {
           compact
           disabled={noteStreaming}
           mcpSearchAvailable={mcpSearchAvailable}
+        />
+      )}
+      {showNote && effectiveImageModels.length > 0 && !isNoting && (
+        <ImageModelPicker
+          options={effectiveImageModels}
+          value={imageModel}
+          onChange={handleImageModelChange}
+          compact
+          disabled={noteStreaming}
+          label="配图"
         />
       )}
       {canEditNote && showNote && (
@@ -1080,6 +1118,9 @@ export default function PaperPage() {
         open={figureModalHeading != null}
         heading={figureModalHeading || ""}
         loading={sectionFigureLoading != null}
+        imageModels={effectiveImageModels}
+        imageModel={imageModel}
+        onImageModelChange={handleImageModelChange}
         onCancel={() => {
           if (!sectionFigureLoading) setFigureModalHeading(null);
         }}

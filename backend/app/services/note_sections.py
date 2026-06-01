@@ -215,10 +215,36 @@ def resolve_paper_file_path(data_dir: Path, file_path: str) -> Path | None:
     return None
 
 
+def _max_gen_figure_index(data_dir: Path) -> int:
+    """扫描已有 gen_*.png 的最大序号（含 assets 与 images/gen）。"""
+    max_idx = 0
+    dirs = [gen_images_dir(data_dir)]
+    assets = data_dir / "assets"
+    if assets.is_dir():
+        dirs.append(assets)
+    for d in dirs:
+        for p in d.glob("gen_*.png"):
+            m = re.match(r"gen_(\d+)\.png", p.name, re.I)
+            if m:
+                max_idx = max(max_idx, int(m.group(1)))
+    return max_idx
+
+
+def allocate_gen_figure_filename(data_dir: Path) -> str:
+    """分配单调递增的 gen 文件名，删除旧图后也不复用序号（避免前端 blob/浏览器缓存旧图）。"""
+    seq_file = data_dir / ".gen_figure_seq"
+    seq = 0
+    if seq_file.is_file():
+        try:
+            seq = int(seq_file.read_text(encoding="utf-8").strip())
+        except ValueError:
+            seq = 0
+    seq = max(seq, _max_gen_figure_index(data_dir)) + 1
+    seq_file.write_text(str(seq), encoding="utf-8")
+    return f"gen_{seq:03d}.png"
+
+
 def next_gen_image_rel(data_dir: Path) -> tuple[Path, str]:
     out_dir = gen_images_dir(data_dir)
-    existing = sorted(out_dir.glob("gen_*.png"))
-    legacy = sorted((data_dir / "assets").glob("gen_*.png")) if (data_dir / "assets").is_dir() else []
-    idx = len(existing) + len(legacy) + 1
-    filename = f"gen_{idx:03d}.png"
+    filename = allocate_gen_figure_filename(data_dir)
     return out_dir / filename, f"images/gen/{filename}"

@@ -10,11 +10,10 @@ from sqlmodel import Session
 from app.db.models import Asset
 from app.db.session import get_engine
 from app.services.mineru import paper_data_dir
-from app.prompts.image_gen import NOTE_FIGURE_SIZE
 from app.services.tools.image_gen import format_tool_output, generate_figure
 
 
-def make_gen_figure_tool_handler(paper_id: int, user_id: int):
+def make_gen_figure_tool_handler(paper_id: int, user_id: int, image_model: str = "ark"):
     data_dir = paper_data_dir(user_id, paper_id)
     assets_dir = data_dir / "assets"
     mineru_dir = data_dir
@@ -29,7 +28,7 @@ def make_gen_figure_tool_handler(paper_id: int, user_id: int):
         if ref and not Path(ref).is_absolute():
             ref = str(mineru_dir / ref)
         result = await generate_figure(
-            prompt, assets_dir, ref, size=NOTE_FIGURE_SIZE
+            prompt, assets_dir, ref, image_model=image_model
         )
         engine = get_engine()
         with Session(engine) as session:
@@ -38,7 +37,10 @@ def make_gen_figure_tool_handler(paper_id: int, user_id: int):
                     paper_id=paper_id,
                     kind="ai_generated",
                     path=result["local_path"],
-                    meta_json=json.dumps({"prompt": prompt}, ensure_ascii=False),
+                    meta_json=json.dumps(
+                        {"prompt": prompt, "image_model": result.get("image_model", image_model)},
+                        ensure_ascii=False,
+                    ),
                 )
             )
             session.commit()

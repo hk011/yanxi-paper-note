@@ -269,6 +269,7 @@ async def run_chat_turn(
     enable_thinking: bool,
     enable_search: bool,
     enable_figure_gen: bool,
+    image_model: str = "ark",
     attachments: list[dict],
     emit,
 ) -> None:
@@ -377,7 +378,7 @@ async def run_chat_turn(
 
     try:
         base_handler = (
-            make_gen_figure_tool_handler(paper_id, user_id)
+            make_gen_figure_tool_handler(paper_id, user_id, image_model=image_model)
             if enable_figure_gen
             else _noop_chat_tool
         )

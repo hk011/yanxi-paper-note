@@ -29,6 +29,7 @@ class PaperDetail(PaperSummary):
 
 class NoteRegenerateBody(BaseModel):
     model: str = ""
+    image_model: str = "ark"
 
 
 class NoteUpdateBody(BaseModel):
@@ -53,6 +54,7 @@ class NoteRefineApplyBody(BaseModel):
 class NoteSectionAddFigureBody(BaseModel):
     heading: str
     instruction: str = ""
+    image_model: str = "ark"
 
 
 class NoteDeleteFigureBody(BaseModel):

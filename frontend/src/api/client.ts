@@ -105,6 +105,14 @@ export interface ModelListResponse {
   default_model: string;
   /** 千帆 MCP 联网搜索已配置时，自定义模型可开启联网 */
   mcp_search_available: boolean;
+  image_models: ImageModelOption[];
+}
+
+export interface ImageModelOption {
+  id: string;
+  label: string;
+  hint: string;
+  available: boolean;
 }
 
 export interface UserCustomModel {
@@ -120,6 +128,7 @@ export interface ChatConfig {
   context_limit: number;
   /** 千帆 MCP 联网搜索是否已配置（自定义模型可用） */
   mcp_search_available: boolean;
+  image_models: ImageModelOption[];
 }
 
 export interface ChatSuggestion {
@@ -179,6 +188,7 @@ export interface ChatSendPayload {
   enable_thinking: boolean;
   enable_search: boolean;
   enable_figure_gen?: boolean;
+  image_model?: string;
   attachments: { path: string; name: string }[];
 }
 
@@ -274,6 +284,7 @@ export const api = {
   fetchNote: async (id: number) => {
     const token = getToken();
     const res = await fetch(`/api/papers/${id}/note`, {
+      cache: "no-store",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) throw new Error("解读笔记未就绪");
@@ -299,10 +310,13 @@ export const api = {
       body: JSON.stringify({ content }),
     }),
 
-  regenerateNote: (id: number, model?: string) =>
+  regenerateNote: (id: number, model?: string, imageModel?: string) =>
     request<{ status: string }>(`/api/papers/${id}/note/regenerate`, {
       method: "POST",
-      body: JSON.stringify({ model: model || "" }),
+      body: JSON.stringify({
+        model: model || "",
+        image_model: imageModel || "ark",
+      }),
     }),
 
   listModels: () => request<ModelListResponse>("/api/models"),
@@ -393,13 +407,18 @@ export const api = {
   addSectionFigure: (
     id: number,
     heading: string,
-    instruction?: string
+    instruction?: string,
+    imageModel?: string
   ) =>
-    request<{ ok: boolean; note_version: number; image_path: string; heading: string }>(
+    request<{ ok: boolean; note_version: number; image_path: string; heading: string; image_model?: string; content?: string }>(
       `/api/papers/${id}/note/sections/add-figure`,
       {
         method: "POST",
-        body: JSON.stringify({ heading, instruction: instruction || "" }),
+        body: JSON.stringify({
+          heading,
+          instruction: instruction || "",
+          image_model: imageModel || "ark",
+        }),
       }
     ),
 
@@ -411,6 +430,7 @@ export const api = {
       file_deleted: boolean;
       remaining_refs: number;
       removed_lines?: number;
+      content?: string;
     }>(`/api/papers/${id}/note/figures/delete`, {
       method: "POST",
       body: JSON.stringify({ image_path: imagePath }),
@@ -469,9 +489,17 @@ export function buildAuthenticatedUrl(url: string): string {
   return withToken(url);
 }
 
-export function buildPaperFileUrl(paperId: number, relPath: string): string {
+export function buildPaperFileUrl(
+  paperId: number,
+  relPath: string,
+  cacheBust?: number | string
+): string {
   const clean = relPath.replace(/^\.?\/?/, "");
-  return withToken(`/api/papers/${paperId}/files/${clean}`);
+  let url = withToken(`/api/papers/${paperId}/files/${clean}`);
+  if (cacheBust != null && cacheBust !== "") {
+    url += `&v=${encodeURIComponent(String(cacheBust))}`;
+  }
+  return url;
 }
 
 export function buildPaperPdfUrl(paperId: number): string {

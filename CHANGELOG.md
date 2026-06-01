@@ -4,6 +4,25 @@
 
 ## [Unreleased]
 
+## [0.0.6] - 2026-05-31
+
+### Added
+
+- 商汤 Sensenova 文生图接入，与豆包 Seedream 双 provider 可选（`.env` 配置 `SENSENOVA_*`）
+- 前端 `ImageModelPicker`：笔记生成、小节配图、问答配图均可选择文生图模型
+- 配图 prompt 规范升级：四段式结构（整体概览→模块→连接→装饰），建议 600–1500 字详细段落
+- 文生图最终 prompt 与优化器输出终端打印，便于排查图内标题等问题
+
+### Changed
+
+- `gen_figure` 工具描述、小节配图优化器、规则兜底模板同步新规范；移除 prompt 400 字截断
+- 图内文字引号规则：一律用中文双引号 `""` 包裹，禁止 `「」`；`enhance_figure_prompt` 自动归一化误用格式
+
+### Fixed
+
+- 删除配图后重新生成：gen 文件名单调递增，清除 blob 缓存，避免不同模型仍显示旧图
+- 增删配图后即时刷新笔记：API 返回最新 content、`Cache-Control: no-store`、配图 URL 缓存破除
+
 ## [0.0.5] - 2026-05-26
 
 ### Added

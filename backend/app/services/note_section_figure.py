@@ -9,7 +9,6 @@ from sqlmodel import Session
 
 from app.db.models import Asset
 from app.db.session import get_engine
-from app.prompts.image_gen import NOTE_FIGURE_SIZE
 from app.services.figure_prompt import build_academic_figure_prompt, infer_figure_profile
 from app.services.figure_prompt_optimizer import optimize_section_figure_prompt
 from app.services.mineru import paper_data_dir
@@ -30,6 +29,7 @@ async def add_figure_to_section(
     user_id: int,
     heading: str,
     instruction: str = "",
+    image_model: str = "ark",
 ) -> dict:
     data_dir = paper_data_dir(user_id, paper_id)
     note_path = data_dir / "note.md"
@@ -62,12 +62,12 @@ async def add_figure_to_section(
 
     dest, rel = next_gen_image_rel(data_dir)
     logger.info(
-        "小节配图 prompt paper=%s section=%s optimizer=%s file=%s prompt=%s",
+        "小节配图 paper=%s section=%s optimizer=%s file=%s prompt_len=%d",
         paper_id,
         scope_heading,
         optimizer_used,
         rel,
-        prompt[:500],
+        len(prompt),
     )
     result = await generate_figure(
         prompt,
@@ -75,7 +75,7 @@ async def add_figure_to_section(
         ref_image_path=None,
         filename=dest.name,
         rel_path=rel,
-        size=NOTE_FIGURE_SIZE,
+        image_model=image_model,
     )
 
     engine = get_engine()
@@ -90,6 +90,7 @@ async def add_figure_to_section(
                         "prompt": result.get("prompt", prompt),
                         "section": scope_heading,
                         "optimizer": optimizer_used,
+                        "image_model": result.get("image_model", image_model),
                     },
                     ensure_ascii=False,
                 ),
@@ -106,4 +107,15 @@ async def add_figure_to_section(
         content=merged,
         model="section_figure",
     )
-    return {**saved, "image_path": rel, "heading": scope_heading}
+    from app.services.note_content import normalize_note_image_refs
+
+    note_text = normalize_note_image_refs(
+        note_path.read_text(encoding="utf-8"), paper_id
+    )
+    return {
+        **saved,
+        "image_path": rel,
+        "heading": scope_heading,
+        "image_model": result.get("image_model", image_model),
+        "content": note_text,
+    }

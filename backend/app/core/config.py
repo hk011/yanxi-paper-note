@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     # 小节配图提示词优化（多模态，需支持 input_image）
     ark_figure_optimizer_model: str = "doubao-seed-2-0-lite-260428"
 
+    sensenova_api_key: str = ""
+    sensenova_api_url: str = "https://token.sensenova.cn/v1"
+    sensenova_model: str = "sensenova-u1-fast"
+
     # 千帆百度搜索 MCP（streamableHttp），供自定义模型联网搜索
     web_search_mcp_server: str = "https://qianfan.baidubce.com/v2/tools/web-search/mcp"
     web_search_mcp_server_key: str = ""

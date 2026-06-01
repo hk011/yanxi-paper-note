@@ -34,11 +34,27 @@ def parse_seedream_prompt(raw: str) -> str:
     if fence:
         text = fence.group(1).strip()
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    if lines and not lines[0].startswith("绘制"):
+    start_prefixes = (
+        "绘制",
+        "Draw",
+        "draw",
+        "整体概览",
+        "生成一张",
+        "创建一张",
+        "设计一张",
+    )
+    if lines and not any(lines[0].startswith(p) for p in start_prefixes):
         for i, ln in enumerate(lines):
-            if ln.startswith("绘制"):
+            if any(ln.startswith(p) for p in start_prefixes):
                 text = "\n".join(lines[i:])
                 break
+        else:
+            # 含主标题引号或结构关键词时也视为有效
+            joined = "\n".join(lines)
+            if '"' in joined or "整体" in joined[:200]:
+                text = joined
+            elif len(lines) >= 2:
+                text = joined
     return text.strip()
 
 
@@ -89,7 +105,9 @@ def _build_user_text(
         f"【用户需求】\n{req}\n\n"
         f"【说明】\n{img_note}\n"
         f"【本次任务ID】{batch_id}\n"
-        "每次生成都是独立任务：请重新规划画面构图与视觉隐喻，勿照搬常见模板或与以往生成雷同。\n\n"
+        "每次生成都是独立任务：请重新规划画面构图与视觉隐喻，勿照搬常见模板或与以往生成雷同。\n"
+        "输出须为连贯段落，按整体概览→模块逐一描述→连接与导航→装饰与氛围组织；"
+        "图内文字须用中文双引号 “” 包裹并逐字写出（如 主标题“…”），禁止使用「」；数值须具体。\n\n"
         f"【本节正文 Markdown】\n{body}"
     )
 
@@ -145,4 +163,17 @@ async def optimize_section_figure_prompt(
     prompt = parse_seedream_prompt(raw)
     if not prompt:
         raise RuntimeError("配图优化模型未返回有效文生图提示词")
+
+    banner = "=" * 60
+    print(f"\n{banner}", flush=True)
+    print(f"[配图优化器] heading={heading!r} model={model}", flush=True)
+    print(f"[LLM 原始输出 {len(raw)} 字]\n{raw}", flush=True)
+    print(f"[解析后 prompt {len(prompt)} 字]\n{prompt}", flush=True)
+    print(f"{banner}\n", flush=True)
+    logger.info(
+        "配图优化器 heading=%r raw_len=%d prompt_len=%d",
+        heading,
+        len(raw),
+        len(prompt),
+    )
     return prompt

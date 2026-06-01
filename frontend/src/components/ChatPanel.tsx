@@ -19,6 +19,7 @@ import {
   buildAuthenticatedUrl,
   ChatConversationSummary,
   ChatSuggestion,
+  ImageModelOption,
   ModelOption,
   subscribeChatStream,
 } from "../api/client";
@@ -26,6 +27,10 @@ import ChatFeatureToggles from "./ChatFeatureToggles";
 import ChatImageAttachments from "./ChatImageAttachments";
 import ContextRing from "./ContextRing";
 import DraggableChatFab from "./DraggableChatFab";
+import ImageModelPicker, {
+  IMAGE_MODEL_KEY,
+  pickDefaultImageModel,
+} from "./ImageModelPicker";
 import MarkdownPreview from "./MarkdownPreview";
 import ModelSwitcher, { isCustomModel } from "./ModelSwitcher";
 import ThoughtTimeline from "./ThoughtTimeline";
@@ -105,8 +110,10 @@ export default function ChatPanel({
   refining,
 }: Props) {
   const [models, setModels] = useState<ModelOption[]>([]);
+  const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
   const [mcpSearchAvailable, setMcpSearchAvailable] = useState(false);
   const [model, setModel] = useState("");
+  const [imageModel, setImageModel] = useState("ark");
   const [contextLimit, setContextLimit] = useState(256000);
   const [promptTokens, setPromptTokens] = useState(0);
   const [enableThinking, setEnableThinking] = useState(true);
@@ -222,8 +229,11 @@ export default function ChatPanel({
         api.getChatSuggestions(paperId),
       ]);
       setModels(config.models);
+      setImageModels(config.image_models || []);
       setContextLimit(config.context_limit);
       setMcpSearchAvailable(Boolean(config.mcp_search_available));
+      const savedImage = localStorage.getItem(IMAGE_MODEL_KEY);
+      setImageModel(pickDefaultImageModel(config.image_models || [], savedImage));
 
       const savedConv = localStorage.getItem(chatConvKey(paperId));
       const savedConvId = savedConv ? Number(savedConv) : NaN;
@@ -439,6 +449,7 @@ export default function ChatPanel({
       enable_thinking: enableThinking,
       enable_search: enableSearch,
       enable_figure_gen: enableFigureGen,
+      image_model: imageModel,
       attachments: pendingAttachments.map(({ path, name }) => ({ path, name: name || "" })),
     };
     const onStreamDone = () => {
@@ -895,6 +906,18 @@ export default function ChatPanel({
                         : "自定义模型需配置千帆 MCP 联网搜索（web_search_mcp_server_key）"
                     }
                   />
+                  {enableFigureGen && imageModels.length > 0 ? (
+                    <ImageModelPicker
+                      options={imageModels}
+                      value={imageModel}
+                      onChange={(next) => {
+                        setImageModel(next);
+                        localStorage.setItem(IMAGE_MODEL_KEY, next);
+                      }}
+                      compact
+                      disabled={loading}
+                    />
+                  ) : null}
                 </div>
                 <div className="chat-composer-footer-right">
                   <ContextRing

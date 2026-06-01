@@ -85,10 +85,16 @@ def delete_gen_figure_from_note(
         content=merged,
         model="",
     )
+    from app.services.note_content import normalize_note_image_refs
+
+    note_text = normalize_note_image_refs(
+        note_path.read_text(encoding="utf-8"), paper_id
+    )
     return {
         **saved,
         "image_path": rel,
         "file_deleted": file_deleted,
         "remaining_refs": remaining_refs,
         "removed_lines": removed_lines,
+        "content": note_text,
     }

@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from app.schemas.model import ImageModelOptionOut
+
 
 class ModelOptionOut(BaseModel):
     id: str
@@ -14,6 +16,7 @@ class ChatConfigOut(BaseModel):
     default_model: str
     context_limit: int = 256_000
     mcp_search_available: bool = False
+    image_models: list[ImageModelOptionOut] = Field(default_factory=list)
 
 
 class ChatSuggestionItem(BaseModel):
@@ -37,6 +40,7 @@ class ChatSendRequest(BaseModel):
     enable_thinking: bool = True
     enable_search: bool = False
     enable_figure_gen: bool = False
+    image_model: str = "ark"
     attachments: list[ChatAttachmentIn] = Field(default_factory=list)
 
 

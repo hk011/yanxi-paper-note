@@ -3954,6 +3954,76 @@ table.task-table td:nth-child(5) {
   flex-wrap: wrap;
 }
 
+.note-generate-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.note-generate-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.note-generate-row-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #4e5969;
+}
+
+.note-generate-image-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #86909c;
+  max-width: 420px;
+}
+
+.image-model-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.image-model-picker--compact {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.image-model-picker-label {
+  font-size: 12px;
+  color: #86909c;
+  white-space: nowrap;
+}
+
+.image-model-picker--compact .image-model-picker-label {
+  font-size: 12px;
+}
+
+.image-model-option-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.image-model-hint-tag {
+  margin: 0;
+  font-size: 10px;
+  line-height: 16px;
+  padding: 0 4px;
+}
+
+.section-figure-model-row {
+  margin-bottom: 12px;
+}
+
 .models-page {
   max-width: 720px;
   display: flex;

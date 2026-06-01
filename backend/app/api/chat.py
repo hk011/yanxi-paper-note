@@ -98,6 +98,8 @@ def chat_config(
     _ensure_paper(paper_id, user, session)
     options = list_model_options(session, user.id)
     from app.services.web_search import web_search_configured
+    from app.services.tools.image_gen import list_image_model_options
+    from app.schemas.model import ImageModelOptionOut
 
     return ChatConfigOut(
         models=[
@@ -106,6 +108,9 @@ def chat_config(
         ],
         default_model=default_model_key(session, user.id),
         mcp_search_available=web_search_configured(),
+        image_models=[
+            ImageModelOptionOut(**item) for item in list_image_model_options()
+        ],
     )
 
 
@@ -276,6 +281,7 @@ async def send_chat_message(
                     enable_thinking=body.enable_thinking,
                     enable_search=body.enable_search,
                     enable_figure_gen=body.enable_figure_gen,
+                    image_model=body.image_model or "ark",
                     attachments=attachments,
                     emit=emit,
                 )

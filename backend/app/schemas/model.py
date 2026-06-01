@@ -9,10 +9,18 @@ class ModelOptionOut(BaseModel):
     source: str
 
 
+class ImageModelOptionOut(BaseModel):
+    id: str
+    label: str
+    hint: str
+    available: bool
+
+
 class ModelListOut(BaseModel):
     models: list[ModelOptionOut]
     default_model: str
     mcp_search_available: bool = False
+    image_models: list[ImageModelOptionOut] = Field(default_factory=list)
 
 
 class UserModelCreate(BaseModel):

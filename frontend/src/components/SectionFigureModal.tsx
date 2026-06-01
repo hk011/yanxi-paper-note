@@ -1,5 +1,7 @@
 import { Input, Modal } from "antd";
 import { useEffect, useState } from "react";
+import type { ImageModelOption } from "../api/client";
+import ImageModelPicker from "./ImageModelPicker";
 
 const FIGURE_HINTS = [
   "信息图：3–5 个要点分区，每区配简洁图标",
@@ -14,6 +16,9 @@ interface Props {
   open: boolean;
   heading: string;
   loading?: boolean;
+  imageModels: ImageModelOption[];
+  imageModel: string;
+  onImageModelChange: (value: string) => void;
   onCancel: () => void;
   onSubmit: (instruction: string) => void;
 }
@@ -22,6 +27,9 @@ export default function SectionFigureModal({
   open,
   heading,
   loading,
+  imageModels,
+  imageModel,
+  onImageModelChange,
   onCancel,
   onSubmit,
 }: Props) {
@@ -45,6 +53,16 @@ export default function SectionFigureModal({
       <p className="section-action-modal-desc">
         将结合本节正文与已有图片，由多模态模型优化文生图提示词后生成 16:9 配图（含图内文字说明）；也可选填补充要求。
       </p>
+      {imageModels.length > 0 ? (
+        <div className="section-figure-model-row">
+          <ImageModelPicker
+            options={imageModels}
+            value={imageModel}
+            onChange={onImageModelChange}
+            disabled={loading}
+          />
+        </div>
+      ) : null}
       <Input.TextArea
         value={instruction}
         onChange={(e) => setInstruction(e.target.value)}

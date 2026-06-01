@@ -7,6 +7,7 @@ import { isGenFigurePath, normalizeFigureRelPath } from "../utils/genFigure";
 interface Props {
   rawSrc: string;
   paperId: number;
+  contentRevision?: number | string;
   eager: boolean;
   useDirectSrc?: boolean;
   onPreview: (src: string) => void;
@@ -18,6 +19,7 @@ interface Props {
 function GenNoteImage({
   rawSrc,
   paperId,
+  contentRevision,
   eager,
   useDirectSrc,
   onPreview,
@@ -60,6 +62,7 @@ function GenNoteImage({
       <NoteImage
         rawSrc={rawSrc}
         paperId={paperId}
+        cacheBust={contentRevision}
         eager={eager}
         useDirectSrc={useDirectSrc}
         className="md-img-clickable"
@@ -97,6 +100,7 @@ export default memo(
   (prev, next) =>
     prev.rawSrc === next.rawSrc &&
     prev.paperId === next.paperId &&
+    prev.contentRevision === next.contentRevision &&
     prev.eager === next.eager &&
     prev.useDirectSrc === next.useDirectSrc &&
     prev.deletable === next.deletable &&

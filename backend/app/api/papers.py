@@ -330,7 +330,12 @@ def get_note(
 
     raw = note_path.read_text(encoding="utf-8")
     return PlainTextResponse(
-        normalize_note_image_refs(raw, paper_id), media_type="text/plain"
+        normalize_note_image_refs(raw, paper_id),
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
     )
 
 
@@ -602,6 +607,7 @@ async def add_figure_to_note_section(
             user_id=user.id,
             heading=body.heading.strip(),
             instruction=body.instruction.strip(),
+            image_model=body.image_model or "ark",
         )
     except FileNotFoundError:
         raise HTTPException(404, "解读笔记尚未生成")
@@ -825,7 +831,12 @@ async def regenerate_note(
 
     reset_parse_queue(paper_id)
     background_tasks.add_task(
-        run_note_pipeline, paper_id, user.id, True, body.model or ""
+        run_note_pipeline,
+        paper_id,
+        user.id,
+        True,
+        body.model or "",
+        body.image_model or "ark",
     )
     return {"status": "noting"}
 
@@ -881,5 +892,8 @@ def get_mineru_file(
     headers = None
     rel = str(target.relative_to(data_base.resolve())).replace("\\", "/")
     if rel.startswith("images/gen/") or rel.startswith("assets/gen_"):
-        headers = {"Cache-Control": "no-store, max-age=0"}
+        headers = {
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        }
     return FileResponse(target, headers=headers)

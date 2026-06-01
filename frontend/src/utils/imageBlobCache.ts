@@ -1,3 +1,5 @@
+import { normalizeFigureRelPath } from "./genFigure";
+
 type CacheEntry = {
   blobUrl: string | null;
   refCount: number;
@@ -8,6 +10,10 @@ const cache = new Map<string, CacheEntry>();
 const revokeTimers = new Map<string, number>();
 
 const REVOKE_DELAY_MS = 3000;
+
+function figureCacheKey(paperId: number, relPath: string): string {
+  return `${paperId}:${normalizeFigureRelPath(relPath)}`;
+}
 
 function cancelRevoke(key: string) {
   const timer = revokeTimers.get(key);
@@ -35,6 +41,20 @@ function scheduleRevoke(key: string) {
 export function peekImageBlob(key: string): string | null {
   cancelRevoke(key);
   return cache.get(key)?.blobUrl ?? null;
+}
+
+/** 强制丢弃某路径的 blob 缓存（配图重新生成或删除后调用） */
+export function invalidateImageBlob(key: string): void {
+  cancelRevoke(key);
+  const entry = cache.get(key);
+  if (entry?.blobUrl) {
+    URL.revokeObjectURL(entry.blobUrl);
+  }
+  cache.delete(key);
+}
+
+export function invalidatePaperFigureBlob(paperId: number, relPath: string): void {
+  invalidateImageBlob(figureCacheKey(paperId, relPath));
 }
 
 export function acquireImageBlob(

@@ -5,10 +5,11 @@
 上传英文 PDF 论文，自动解析为结构化 Markdown，并生成中文解读笔记；支持论文问答、小节配图/润色、联网搜索与 AI 配图。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.0.5-green.svg)](https://github.com/hk011/yanxi-paper-note/releases/tag/v0.0.5)
+[![Version](https://img.shields.io/badge/version-0.0.6-green.svg)](https://github.com/hk011/yanxi-paper-note/releases/tag/v0.0.6)
 
 ## 最新动态
 
+- [2026.05.31] **v0.0.6** Sensenova 文生图可选；配图 prompt 规范升级与引号修正；删图重生成与即时刷新修复 → [完整更新日志](CHANGELOG.md)
 - [2026.05.26] **v0.0.5** 笔记生成过程服务端持久化；二/三级标题配图与润色范围修正；配图中文标注提示 → [完整更新日志](CHANGELOG.md)
 - [2026.05.25] **v0.0.4** 自定义模型千帆 MCP 联网；配图提示词优化（16:9 / 多模态）；联网结果展示修复 → [完整更新日志](CHANGELOG.md)
 - [2026.05.24] **v0.0.3** 问答可选 AI 配图开关；小节润色预览确认；配图路径与删图修复 → [完整更新日志](CHANGELOG.md)
