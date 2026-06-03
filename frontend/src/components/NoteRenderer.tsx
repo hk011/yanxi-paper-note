@@ -13,7 +13,7 @@ interface Props {
   content: string;
   paperId: number;
   streaming?: boolean;
-  /** 笔记版本号或内容签名，用于配图 URL 缓存破除 & 强制 Markdown 重渲染 */
+  /** 非流式：增删配图后破除图片 URL 缓存（勿用内容长度作签名，否则会触发整页 remount） */
   contentRevision?: number | string;
   sectionActions?: boolean;
   onAddSectionFigure?: (heading: string) => void;
@@ -116,7 +116,7 @@ export default function NoteRenderer({
   content,
   paperId,
   streaming,
-  contentRevision = 0,
+  contentRevision,
   sectionActions,
   onAddSectionFigure,
   onRefineSection,
@@ -134,10 +134,9 @@ export default function NoteRenderer({
       const rel = normalizeFigureRelPath(raw);
       return (
         <GenNoteImage
-          key={rel}
           rawSrc={raw}
           paperId={paperId}
-          contentRevision={contentRevision}
+          contentRevision={streaming ? undefined : contentRevision}
           eager
           useDirectSrc
           onPreview={handlePreview}
@@ -150,7 +149,15 @@ export default function NoteRenderer({
         />
       );
     },
-    [paperId, streaming, handlePreview, sectionActions, onDeleteFigure, deletingFigurePath, contentRevision]
+    [
+      paperId,
+      streaming,
+      handlePreview,
+      sectionActions,
+      onDeleteFigure,
+      deletingFigurePath,
+      contentRevision,
+    ]
   );
 
   const makeHeading = useCallback(
@@ -196,7 +203,6 @@ export default function NoteRenderer({
         }
       >
         <XMarkdown
-          key={`${contentRevision}-${content.length}`}
           content={content}
           rootClassName="markdown-body"
           openLinksInNewTab

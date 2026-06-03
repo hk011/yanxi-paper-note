@@ -90,6 +90,7 @@ export default function ModelSwitcher({
       menu={{ items, selectable: true, selectedKeys: value ? [value] : [] }}
       trigger={["click"]}
       disabled={disabled}
+      getPopupContainer={() => document.body}
     >
       {tooltip ? <Tooltip title={tooltip}>{button}</Tooltip> : button}
     </Dropdown>

@@ -464,13 +464,14 @@ export default function PaperPage() {
 
   const noteDisplayContent = useStreamDisplayContent(noteContent, noteStreaming, 50);
 
-  /** 笔记内配图路径签名：增删配图后 note_version 不变，用此驱动 Markdown/图片重渲染 */
+  /** 非流式：仅按配图路径签名刷新图片缓存（禁止用内容长度，否则 v0.0.6 会每 chunk remount） */
   const noteFigureSignature = useMemo(() => {
+    if (noteStreaming) return undefined;
     const imgs = [
       ...noteDisplayContent.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g),
     ].map((m) => m[1]);
-    return imgs.length > 0 ? imgs.join("|") : `len:${noteDisplayContent.length}`;
-  }, [noteDisplayContent]);
+    return imgs.length > 0 ? imgs.join("|") : undefined;
+  }, [noteDisplayContent, noteStreaming]);
 
   const noteStickEnabled =
     pipelinePhase === "final" && finalStatus === "running";
@@ -793,7 +794,6 @@ export default function PaperPage() {
               </div>
             )}
             <NoteRenderer
-              key={noteFigureSignature}
               content={noteDisplayContent}
               paperId={paperId}
               contentRevision={noteFigureSignature}
@@ -890,23 +890,21 @@ export default function PaperPage() {
     </div>
   ) : (
     <div className="note-toolbar">
-      {showNote && noteModels.length > 0 && !isNoting && (
+      {showNote && noteModels.length > 0 && (
         <ModelSwitcher
           models={noteModels}
           value={noteModel}
           onChange={handleNoteModelChange}
           compact
-          disabled={noteStreaming}
           mcpSearchAvailable={mcpSearchAvailable}
         />
       )}
-      {showNote && effectiveImageModels.length > 0 && !isNoting && (
+      {showNote && effectiveImageModels.length > 0 && (
         <ImageModelPicker
           options={effectiveImageModels}
           value={imageModel}
           onChange={handleImageModelChange}
           compact
-          disabled={noteStreaming}
           label="配图"
         />
       )}
@@ -927,6 +925,7 @@ export default function PaperPage() {
       {(paper.has_note || paper.status === "done") && showNote && (
         <Dropdown
           trigger={["click"]}
+          getPopupContainer={() => document.body}
           menu={{
             items: [
               {
@@ -949,7 +948,11 @@ export default function PaperPage() {
           </Tooltip>
         </Dropdown>
       )}
-      <Dropdown trigger={["click"]} menu={{ items: moreMenuItems }}>
+      <Dropdown
+        trigger={["click"]}
+        getPopupContainer={() => document.body}
+        menu={{ items: moreMenuItems }}
+      >
         <Tooltip title="更多">
           <button type="button" className="note-toolbar-btn" aria-label="更多">
             <MoreOutlined />

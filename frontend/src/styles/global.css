@@ -615,6 +615,14 @@ a {
   font-size: 12px;
 }
 
+.note-panel-header,
+.compare-panel-header.note-panel-header {
+  position: relative;
+  z-index: 10;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
 .note-panel-header {
   display: flex;
   align-items: center;
@@ -2142,6 +2150,8 @@ table.task-table td:nth-child(5) {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .paper-compare-pane--note .paper-compare-pane-content {
