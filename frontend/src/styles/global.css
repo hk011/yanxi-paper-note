@@ -2037,6 +2037,23 @@ table.task-table td:nth-child(5) {
   --chat-panel-gap: 0px;
 }
 
+.paper-page-root--chat-fullscreen {
+  --chat-panel-width: 100%;
+  --chat-panel-gap: 0;
+  flex-direction: column;
+}
+
+.paper-page-root--chat-fullscreen .paper-workspace {
+  display: none;
+}
+
+.paper-page-root--chat-fullscreen .chat-panel {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
 .paper-workspace {
   flex: 1;
   min-width: 0;
@@ -2655,8 +2672,8 @@ table.task-table td:nth-child(5) {
   color: #1677ff;
 }
 
-.chat-panel-expand-btn {
-  display: none;
+.chat-panel--fullscreen {
+  border-radius: 12px;
 }
 
 .chat-panel-header {
@@ -2742,7 +2759,7 @@ table.task-table td:nth-child(5) {
   pointer-events: none;
 }
 
-.chat-panel-collapse-btn {
+.chat-panel-header-icon-btn {
   width: 24px;
   height: 24px;
   display: grid;
@@ -2754,6 +2771,17 @@ table.task-table td:nth-child(5) {
   font-size: 11px;
   cursor: pointer;
   flex-shrink: 0;
+  padding: 0;
+}
+
+.chat-panel-header-icon-btn:hover {
+  color: #374151;
+  border-color: #d1d5db;
+}
+
+.chat-panel-close-btn:hover {
+  color: #cf1322;
+  border-color: #ffa39e;
 }
 
 .chat-panel-body-wrap {

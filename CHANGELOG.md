@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [0.0.8] - 2026-06-06
+
+### Added
+
+- DeepSeek 内置模型：`.env` 配置 `deepseek_key` / `deepseek_url` / `deepseek_model` 后自动注册，列表顺序为 DeepSeek Flash → Pro → 豆包 Pro → Lite；默认模型改为列表首项
+- 论文问答面板全屏展开：新增全屏/退出全屏按钮，侧边栏与全屏可切换
+
+### Changed
+
+- 论文问答面板关闭按钮改为叉号图标，与全屏按钮分离，避免误触
+- 内置模型展示友好名称（DeepSeek V4 Flash/Pro、豆包 Seed 2.0 Pro/Lite）；模型管理页区分 DeepSeek 与火山方舟说明
+
 ## [0.0.7] - 2026-06-03
 
 ### Fixed

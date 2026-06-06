@@ -48,7 +48,11 @@ export default function ModelsPage() {
                 <List.Item>
                   <List.Item.Meta
                     title={item.label}
-                    description="火山方舟 · 支持联网搜索与可选 AI 配图；小节「添加配图」用于笔记内插图"
+                    description={
+                      item.label.startsWith("DeepSeek")
+                        ? "DeepSeek · OpenAI 兼容 · 可通过千帆 MCP 联网搜索"
+                        : "火山方舟 · 支持联网搜索与可选 AI 配图；小节「添加配图」用于笔记内插图"
+                    }
                   />
                 </List.Item>
               )}

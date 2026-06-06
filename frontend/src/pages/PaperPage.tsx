@@ -102,6 +102,11 @@ export default function PaperPage() {
   const [noteDraft, setNoteDraft] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
   const [chatCollapsed, setChatCollapsed] = useState(false);
+  const [chatFullscreen, setChatFullscreen] = useState(false);
+
+  useEffect(() => {
+    setChatFullscreen(false);
+  }, [paperId]);
   const [refineOpen, setRefineOpen] = useState(false);
   const [refineLoading, setRefineLoading] = useState(false);
   const [refineApplying, setRefineApplying] = useState(false);
@@ -994,7 +999,9 @@ export default function PaperPage() {
             paper.has_note || paper.status === "done"
               ? chatCollapsed
                 ? " paper-page-root--chat-collapsed"
-                : " paper-page-root--chat-open"
+                : chatFullscreen
+                  ? " paper-page-root--chat-fullscreen"
+                  : " paper-page-root--chat-open"
               : ""
           }`}
         >
@@ -1088,7 +1095,14 @@ export default function PaperPage() {
             <ChatPanel
               paperId={paperId}
               collapsed={chatCollapsed}
-              onToggleCollapsed={() => setChatCollapsed((v) => !v)}
+              onToggleCollapsed={() => {
+                setChatCollapsed((v) => {
+                  if (!v) setChatFullscreen(false);
+                  return !v;
+                });
+              }}
+              fullscreen={chatFullscreen}
+              onToggleFullscreen={() => setChatFullscreen((v) => !v)}
               enabled
               refining={refineLoading || refineApplying}
               onRefineTurn={(messageId, conversationId, chatModel) =>

@@ -3,8 +3,10 @@ import { Bubble, Prompts, Sender, Welcome } from "@ant-design/x";
 import type { BubbleListRef } from "@ant-design/x/es/bubble/interface";
 import type { AttachmentsProps } from "@ant-design/x";
 import {
+  CloseOutlined,
   CommentOutlined,
   CompressOutlined,
+  ExpandOutlined,
   HistoryOutlined,
   MergeCellsOutlined,
   PictureOutlined,
@@ -56,6 +58,8 @@ interface Props {
   paperId: number;
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  fullscreen: boolean;
+  onToggleFullscreen: () => void;
   enabled: boolean;
   onRefineTurn?: (
     assistantMessageId: number,
@@ -104,6 +108,8 @@ export default function ChatPanel({
   paperId,
   collapsed,
   onToggleCollapsed,
+  fullscreen,
+  onToggleFullscreen,
   enabled,
   onRefineTurn,
   onRefineConversation,
@@ -540,7 +546,7 @@ export default function ChatPanel({
   }
 
   return (
-    <aside className="chat-panel">
+    <aside className={`chat-panel${fullscreen ? " chat-panel--fullscreen" : ""}`}>
       <div className="chat-panel-header">
         <div className="chat-panel-header-main">
           <YanxiLogo size={20} variant="sm" className="chat-panel-logo" />
@@ -567,12 +573,21 @@ export default function ChatPanel({
           </button>
           <button
             type="button"
-            className="chat-panel-collapse-btn"
-            onClick={onToggleCollapsed}
-            title="收起为悬浮球"
-            aria-label="收起为悬浮球"
+            className="chat-panel-header-icon-btn chat-panel-fullscreen-btn"
+            onClick={onToggleFullscreen}
+            title={fullscreen ? "退出全屏" : "全屏展开"}
+            aria-label={fullscreen ? "退出全屏" : "全屏展开"}
           >
-            <CompressOutlined />
+            {fullscreen ? <CompressOutlined /> : <ExpandOutlined />}
+          </button>
+          <button
+            type="button"
+            className="chat-panel-header-icon-btn chat-panel-close-btn"
+            onClick={onToggleCollapsed}
+            title="关闭"
+            aria-label="关闭"
+          >
+            <CloseOutlined />
           </button>
         </div>
       </div>

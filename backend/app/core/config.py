@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     ark_key: str = ""
     ark_url: str = "https://ark.cn-beijing.volces.com/api/v3"
     ark_multi_model_list: str = "doubao-seed-2-0-pro-260215"
+    deepseek_key: str = ""
+    deepseek_url: str = "https://api.deepseek.com"
+    deepseek_model: str = ""
     ark_image_gen_model: str = "doubao-seedream-5-0-260128"
     # 小节配图提示词优化（多模态，需支持 input_image）
     ark_figure_optimizer_model: str = "doubao-seed-2-0-lite-260428"
@@ -41,6 +44,18 @@ class Settings(BaseSettings):
     @property
     def model_list(self) -> list[str]:
         return [m.strip() for m in self.ark_multi_model_list.split(",") if m.strip()]
+
+    @property
+    def deepseek_model_list(self) -> list[str]:
+        return [m.strip() for m in self.deepseek_model.split(",") if m.strip()]
+
+    @property
+    def deepseek_enabled(self) -> bool:
+        return bool(
+            self.deepseek_key.strip()
+            and self.deepseek_url.strip()
+            and self.deepseek_model_list
+        )
 
 
 def get_settings() -> Settings:

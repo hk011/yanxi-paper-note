@@ -51,14 +51,50 @@ def custom_model_key(model_id: int) -> str:
     return f"{CUSTOM_PREFIX}{model_id}"
 
 
+def _deepseek_builtin_label(model_id: str) -> str:
+    lower = model_id.lower()
+    if "flash" in lower:
+        return "DeepSeek V4 Flash"
+    if "pro" in lower:
+        return "DeepSeek V4 Pro"
+    return model_id
+
+
+def _ark_builtin_label(model_id: str) -> str:
+    lower = model_id.lower()
+    if "lite" in lower:
+        return "豆包 Seed 2.0 Lite"
+    if "pro" in lower:
+        return "豆包 Seed 2.0 Pro"
+    return model_id
+
+
+def _builtin_model_ids(settings) -> list[str]:
+    ids: list[str] = []
+    if settings.deepseek_enabled:
+        ids.extend(settings.deepseek_model_list)
+    ids.extend(settings.model_list or ["doubao-seed-2-0-pro-260215"])
+    return ids
+
+
 def list_model_options(session: Session, user_id: int) -> list[ModelOption]:
     settings = get_settings()
     options: list[ModelOption] = []
+    if settings.deepseek_enabled:
+        for model_id in settings.deepseek_model_list:
+            options.append(
+                ModelOption(
+                    id=model_id,
+                    label=_deepseek_builtin_label(model_id),
+                    source="builtin",
+                    provider="openai",
+                )
+            )
     for model_id in settings.model_list or ["doubao-seed-2-0-pro-260215"]:
         options.append(
             ModelOption(
                 id=model_id,
-                label=model_id,
+                label=_ark_builtin_label(model_id),
                 source="builtin",
                 provider="ark",
             )
@@ -107,13 +143,23 @@ def resolve_model(session: Session, user_id: int, model_key: str) -> ModelEndpoi
             api_key=item.api_key,
         )
 
-    builtin = settings.model_list or ["doubao-seed-2-0-pro-260215"]
+    if settings.deepseek_enabled and key in settings.deepseek_model_list:
+        return ModelEndpoint(
+            key=key,
+            label=_deepseek_builtin_label(key),
+            provider="openai",
+            model=key,
+            api_url=normalize_openai_base_url(settings.deepseek_url),
+            api_key=settings.deepseek_key,
+        )
+
+    builtin = _builtin_model_ids(settings)
     if key not in builtin:
         raise ValueError(f"模型不可用: {key}")
 
     return ModelEndpoint(
         key=key,
-        label=key,
+        label=_ark_builtin_label(key),
         provider="ark",
         model=key,
         api_url=settings.ark_url.rstrip("/"),
@@ -130,7 +176,10 @@ def model_label(session: Session, user_id: int, stored_model: str) -> str:
             return resolve_model(session, user_id, key).label
         except ValueError:
             return key
-    return key
+    settings = get_settings()
+    if settings.deepseek_enabled and key in settings.deepseek_model_list:
+        return _deepseek_builtin_label(key)
+    return _ark_builtin_label(key) if key in (settings.model_list or []) else key
 
 
 # 笔记保存时写入的「操作标记」，不是 LLM 模型 id，不应展示为「由 xxx 生成」
