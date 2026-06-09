@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   Button,
@@ -6,6 +6,7 @@ import {
   Modal,
   Progress,
   Segmented,
+  Select,
   Spin,
   Tag,
   Tooltip,
@@ -34,6 +35,7 @@ import {
 } from "../api/client";
 import ChatPanel from "../components/ChatPanel";
 import MarkdownPreview from "../components/MarkdownPreview";
+import NoteRenderer from "../components/NoteRenderer";
 import ModelSwitcher, { modelLabel } from "../components/ModelSwitcher";
 import ImageModelPicker, {
   IMAGE_MODEL_KEY,
@@ -44,13 +46,13 @@ import NoteDiffModal from "../components/NoteDiffModal";
 import SectionFigureModal from "../components/SectionFigureModal";
 import SectionRefineModal from "../components/SectionRefineModal";
 import NoteEditorPanel from "../components/NoteEditorPanel";
-import NoteRenderer from "../components/NoteRenderer";
 import PaperViewToggles, { type PaperViewPane } from "../components/PaperViewToggles";
 import PdfViewer from "../components/PdfViewer";
 import NoteGenerationPanel from "../components/NoteGenerationPanel";
 import WorkspaceShell from "../components/WorkspaceShell";
 import { useStreamEvents } from "../hooks/useStreamEvents";
 import { useStickToBottom } from "../hooks/useStickToBottom";
+import { useNoteReadProgress } from "../hooks/useNoteReadProgress";
 import { useStreamDisplayContent } from "../hooks/useStreamDisplayContent";
 import ScrollToBottomButton from "../components/ScrollToBottomButton";
 import type { StreamEvent } from "../types/events";
@@ -84,6 +86,10 @@ const mineruStateLabels: Record<string, string> = {
 };
 
 const NOTE_MODEL_KEY = "yanxi:note-model";
+const MD_TRANSLATE_MODEL = "deepseek-v4-flash";
+const MD_TRANSLATE_MODEL_LABEL = "DeepSeek V4 Flash";
+
+type MdViewMode = "preview" | "translation";
 
 export default function PaperPage() {
   const { id } = useParams<{ id: string }>();
@@ -93,7 +99,17 @@ export default function PaperPage() {
   const [markdown, setMarkdown] = useState("");
   const [loadingMd, setLoadingMd] = useState(false);
   const [activePanes, setActivePanes] = useState<PaperViewPane[]>(["note"]);
-  const [mdViewMode, setMdViewMode] = useState<"preview" | "source">("preview");
+  const [mdViewMode, setMdViewMode] = useState<MdViewMode>("preview");
+  const [mdTranslation, setMdTranslation] = useState("");
+  const [loadingMdTranslation, setLoadingMdTranslation] = useState(false);
+  const [translatingMd, setTranslatingMd] = useState(false);
+  const [mdTranslateModel, setMdTranslateModel] = useState(MD_TRANSLATE_MODEL);
+  const [mdTranslateProgress, setMdTranslateProgress] = useState<{
+    chunk: number;
+    total: number;
+  } | null>(null);
+  const mdTranslateUnsubRef = useRef<(() => void) | null>(null);
+  const mdTranslateGotContentRef = useRef(false);
   const [progress, setProgress] = useState(0);
   const [parseElapsed, setParseElapsed] = useState(0);
   const [mineruState, setMineruState] = useState("");
@@ -128,9 +144,6 @@ export default function PaperPage() {
   const [noteModel, setNoteModel] = useState("");
   const [imageModel, setImageModel] = useState("ark");
   const [generatingModelLabel, setGeneratingModelLabel] = useState("");
-  const [sidebarPapers, setSidebarPapers] = useState<
-    { id: number; title: string; status: string }[]
-  >([]);
   const sseStartedRef = useRef(false);
   const notePrintRef = useRef<HTMLDivElement>(null);
   const noteContentRef = useRef("");
@@ -237,8 +250,14 @@ export default function PaperPage() {
   useEffect(() => {
     setPaper(null);
     setMarkdown("");
+    setMdTranslation("");
     setActivePanes(["note"]);
     setMdViewMode("preview");
+    setTranslatingMd(false);
+    setLoadingMdTranslation(false);
+    setMdTranslateProgress(null);
+    mdTranslateUnsubRef.current?.();
+    mdTranslateUnsubRef.current = null;
     setRegenerating(false);
     setNoteEditing(false);
     setNoteDraft("");
@@ -265,15 +284,6 @@ export default function PaperPage() {
     sectionTimelines,
     hydrateCompletedNote,
   ]);
-
-  useEffect(() => {
-    api
-      .listPapers()
-      .then((list) =>
-        setSidebarPapers(list.map((p) => ({ id: p.id, title: p.title, status: p.status })))
-      )
-      .catch(() => {});
-  }, [paperId, paper?.status]);
 
   const handleStreamEvent = useCallback(
     (ev: StreamEvent) => {
@@ -435,6 +445,105 @@ export default function PaperPage() {
     void loadMarkdown();
   }, [activePanes, paper?.has_markdown, markdown, loadMarkdown]);
 
+  const loadMdTranslation = useCallback(async () => {
+    if (mdTranslation) return mdTranslation;
+    setLoadingMdTranslation(true);
+    try {
+      const text = await api.fetchMarkdownTranslation(paperId);
+      if (text) setMdTranslation(text);
+      return text ?? "";
+    } finally {
+      setLoadingMdTranslation(false);
+    }
+  }, [mdTranslation, paperId]);
+
+  useEffect(() => {
+    if (!paper?.has_markdown_translation) return;
+    if (!activePanes.includes("markdown")) return;
+    if (mdTranslation) return;
+    void loadMdTranslation();
+  }, [
+    activePanes,
+    paper?.has_markdown_translation,
+    mdTranslation,
+    loadMdTranslation,
+  ]);
+
+  useEffect(() => {
+    if (mdViewMode !== "translation") return;
+    if (mdTranslation || loadingMdTranslation || translatingMd) return;
+    if (paper?.has_markdown_translation) {
+      void loadMdTranslation();
+    }
+  }, [
+    mdViewMode,
+    mdTranslation,
+    loadingMdTranslation,
+    translatingMd,
+    paper?.has_markdown_translation,
+    loadMdTranslation,
+  ]);
+
+  const handleTranslateMarkdown = async () => {
+    let source = markdown;
+    if (!source) {
+      source = (await loadMarkdown()) ?? "";
+    }
+    if (!source.trim()) {
+      message.warning("Markdown 内容为空");
+      return;
+    }
+    mdTranslateUnsubRef.current?.();
+    mdTranslateGotContentRef.current = false;
+    setMdTranslation("");
+    setMdTranslateProgress(null);
+    setMdViewMode("translation");
+    setTranslatingMd(true);
+
+    mdTranslateUnsubRef.current = api.subscribeMarkdownTranslateStream(
+      paperId,
+      mdTranslateModel,
+      (ev) => {
+        if (ev.type === "content" && ev.delta) {
+          mdTranslateGotContentRef.current = true;
+          setMdTranslation((prev) => prev + ev.delta);
+        }
+        if (ev.type === "status" && ev.phase === "translating") {
+          const chunk = (ev as StreamEvent & { chunk?: number }).chunk;
+          const total = (ev as StreamEvent & { total?: number }).total;
+          if (chunk != null && total != null) {
+            setMdTranslateProgress({ chunk, total });
+          }
+        }
+        if (ev.type === "status" && ev.status === "failed") {
+          message.error(ev.error || "翻译失败");
+          setTranslatingMd(false);
+          setMdTranslateProgress(null);
+        }
+      },
+      () => {
+        setTranslatingMd(false);
+        setMdTranslateProgress(null);
+        mdTranslateUnsubRef.current = null;
+        if (mdTranslateGotContentRef.current) {
+          setPaper((prev) =>
+            prev ? { ...prev, has_markdown_translation: true } : prev
+          );
+          message.success("中文翻译已生成");
+        }
+      }
+    );
+  };
+
+  const mdTranslationDisplay = useStreamDisplayContent(mdTranslation, translatingMd, 50);
+
+  useEffect(() => {
+    return () => {
+      mdTranslateUnsubRef.current?.();
+      mdTranslateUnsubRef.current = null;
+    };
+  }, []);
+
   const handlePrintNotePdf = () => {
     try {
       if (noteEditing) {
@@ -481,6 +590,12 @@ export default function PaperPage() {
   const noteStickEnabled =
     pipelinePhase === "final" && finalStatus === "running";
 
+  const noteReadEnabled =
+    Boolean(paper?.has_note && noteContent.trim()) &&
+    !noteStreaming &&
+    !(paper?.status === "noting" || regenerating) &&
+    !noteEditing;
+
   const {
     bindContainer: bindNoteScrollContainer,
     handleScroll: handleNoteScroll,
@@ -490,6 +605,41 @@ export default function PaperPage() {
     enabled: noteStickEnabled,
     contentDeps: [noteDisplayContent],
   });
+
+  const { handleScroll: handleNoteReadScroll, restoreScroll: restoreNoteScroll } =
+    useNoteReadProgress({
+      paperId,
+      noteReadEpoch: paper?.note_read_epoch ?? 0,
+      initialScrollTop: paper?.note_last_scroll_top ?? 0,
+      enabled: noteReadEnabled,
+    });
+
+  const noteScrollContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const bindNotePaneContainer = useCallback(
+    (el: HTMLDivElement | null) => {
+      noteScrollContainerRef.current = el;
+      bindNoteScrollContainer(el);
+      if (el && noteReadEnabled) {
+        restoreNoteScroll(el);
+      }
+    },
+    [bindNoteScrollContainer, noteReadEnabled, restoreNoteScroll]
+  );
+
+  const handleNotePaneScroll = useCallback(
+    (e: UIEvent<HTMLDivElement>) => {
+      handleNoteScroll(e);
+      handleNoteReadScroll(e);
+    },
+    [handleNoteScroll, handleNoteReadScroll]
+  );
+
+  useEffect(() => {
+    if (noteReadEnabled && noteScrollContainerRef.current) {
+      restoreNoteScroll(noteScrollContainerRef.current);
+    }
+  }, [noteReadEnabled, noteDisplayContent, restoreNoteScroll]);
 
   const handleAddSectionFigure = useCallback(
     async (heading: string, instruction = "") => {
@@ -976,7 +1126,6 @@ export default function PaperPage() {
   return (
     <WorkspaceShell
       title={paper.title}
-      papers={sidebarPapers}
       currentPaperId={paperId}
       headerActions={paperActions}
     >
@@ -1024,8 +1173,10 @@ export default function PaperPage() {
                 {showPdf && (
                   <div className="paper-compare-pane">
                     <div className="paper-compare-pane-label">原文 PDF</div>
-                    <div className="paper-compare-pane-content">
-                      <PdfViewer url={pdfUrl} />
+                    <div className="paper-compare-pane-scroll-wrap">
+                      <div className="paper-compare-pane-content">
+                        <PdfViewer url={pdfUrl} />
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1034,36 +1185,82 @@ export default function PaperPage() {
                     <div className="paper-compare-pane-header">
                       <span className="paper-compare-pane-label">解析 Markdown</span>
                       {markdown && !loadingMd && (
-                        <Segmented
-                          size="small"
-                          className="paper-md-mode-switch"
-                          value={mdViewMode}
-                          onChange={(v) => setMdViewMode(v as "preview" | "source")}
-                          options={[
-                            { label: "预览", value: "preview" },
-                            { label: "源码", value: "source" },
-                          ]}
-                        />
+                        <div className="paper-md-header-actions">
+                          <Segmented
+                            size="small"
+                            className="paper-md-mode-switch"
+                            value={mdViewMode}
+                            onChange={(v) => setMdViewMode(v as MdViewMode)}
+                            options={[
+                              { label: "预览", value: "preview" },
+                              { label: "中文翻译", value: "translation" },
+                            ]}
+                          />
+                        </div>
                       )}
                     </div>
-                    <div className="paper-compare-pane-content">
-                      {loadingMd ? (
-                        <div className="paper-compare-pane-loading">
-                          <Spin />
-                        </div>
-                      ) : markdown ? (
-                        mdViewMode === "source" ? (
-                          <pre className="markdown-source paper-md-source">
-                            {markdown}
-                          </pre>
+                    <div className="paper-compare-pane-scroll-wrap">
+                      <div className="paper-compare-pane-content">
+                        {loadingMd ? (
+                          <div className="paper-compare-pane-loading">
+                            <Spin />
+                          </div>
+                        ) : markdown ? (
+                          mdViewMode === "translation" ? (
+                            loadingMdTranslation ? (
+                              <div className="paper-compare-pane-loading">
+                                <Spin tip="加载中…" />
+                              </div>
+                            ) : translatingMd || mdTranslation ? (
+                              <div className="paper-md-translation-stream">
+                                {translatingMd && mdTranslateProgress ? (
+                                  <p className="paper-md-translate-progress">
+                                    正在翻译第 {mdTranslateProgress.chunk}/
+                                    {mdTranslateProgress.total} 段…
+                                  </p>
+                                ) : null}
+                                <NoteRenderer
+                                  content={mdTranslationDisplay}
+                                  paperId={paperId}
+                                  streaming={translatingMd}
+                                />
+                              </div>
+                            ) : (
+                              <div className="paper-md-translate-empty">
+                                <p>将 MinerU 解析结果翻译为中文 Markdown</p>
+                                <div className="paper-md-translate-form">
+                                  <span>翻译模型</span>
+                                  <Select
+                                    size="small"
+                                    value={mdTranslateModel}
+                                    style={{ minWidth: 180 }}
+                                    options={[
+                                      {
+                                        value: MD_TRANSLATE_MODEL,
+                                        label: MD_TRANSLATE_MODEL_LABEL,
+                                      },
+                                    ]}
+                                    onChange={setMdTranslateModel}
+                                  />
+                                  <Button
+                                    type="primary"
+                                    loading={translatingMd}
+                                    onClick={() => void handleTranslateMarkdown()}
+                                  >
+                                    生成中文翻译
+                                  </Button>
+                                </div>
+                              </div>
+                            )
+                          ) : (
+                            <MarkdownPreview content={markdown} paperId={paperId} />
+                          )
                         ) : (
-                          <MarkdownPreview content={markdown} paperId={paperId} />
-                        )
-                      ) : (
-                        <div className="paper-compare-pane-empty">
-                          暂无解析 Markdown
-                        </div>
-                      )}
+                          <div className="paper-compare-pane-empty">
+                            暂无解析 Markdown
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1073,8 +1270,8 @@ export default function PaperPage() {
                     <div className="paper-compare-pane-scroll-wrap">
                       <div
                         className="paper-compare-pane-content"
-                        ref={bindNoteScrollContainer}
-                        onScroll={handleNoteScroll}
+                        ref={bindNotePaneContainer}
+                        onScroll={handleNotePaneScroll}
                       >
                         {renderNotePanel()}
                       </div>

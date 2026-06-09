@@ -1,21 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { Card, List, message } from "antd";
-import { api, type ModelOption, type PaperSummary } from "../api/client";
+import { api, type ModelOption } from "../api/client";
 import ModelManagerPanel from "../components/ModelManagerPanel";
 import WorkspaceShell from "../components/WorkspaceShell";
 
 export default function ModelsPage() {
-  const [papers, setPapers] = useState<PaperSummary[]>([]);
   const [builtinModels, setBuiltinModels] = useState<ModelOption[]>([]);
   const [mcpSearchAvailable, setMcpSearchAvailable] = useState(false);
-
-  const loadPapers = useCallback(async () => {
-    try {
-      setPapers(await api.listPapers());
-    } catch {
-      /* 侧栏任务列表加载失败时不阻塞页面 */
-    }
-  }, []);
 
   const loadModels = useCallback(async () => {
     try {
@@ -28,15 +19,13 @@ export default function ModelsPage() {
   }, []);
 
   useEffect(() => {
-    void loadPapers();
     void loadModels();
-  }, [loadPapers, loadModels]);
+  }, [loadModels]);
 
   return (
     <WorkspaceShell
       title="模型管理"
       subtitle="配置 OpenAI 兼容 API，用于笔记生成与论文问答"
-      papers={papers.map((p) => ({ id: p.id, title: p.title, status: p.status }))}
     >
       <div className="models-page">
         {builtinModels.length > 0 ? (

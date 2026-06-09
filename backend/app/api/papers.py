@@ -4,14 +4,15 @@ from pathlib import Path
 from typing import Annotated
 
 import aiofiles
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
+from sqlalchemy import exists
 from sqlmodel import Session, select
 
 from fastapi.security import HTTPAuthorizationCredentials
 
 from app.core.auth import decode_token, get_current_user, security
-from app.db.models import Asset, Conversation, Note, Paper, User, utc_now
+from app.db.models import Asset, Conversation, Message, Note, Paper, PaperFolder, User, utc_now
 from app.db.session import get_session
 from app.schemas.events import StreamEvent
 from app.schemas.paper import (
@@ -25,9 +26,24 @@ from app.schemas.paper import (
     NoteVersionListOut,
     NoteVersionRestoreBody,
     NoteVersionSummary,
+    MarkdownTranslateBody,
+    NoteReadProgressBody,
     PaperDetail,
     PaperSummary,
+    PaperUpdateBody,
 )
+from app.services.folders import (
+    get_paper_folder_ids,
+    paper_folder_meta,
+    should_regenerate_card_on_folder_change,
+    sync_paper_folders,
+)
+from app.services.markdown_translate import (
+    has_translation,
+    load_translation,
+    run_translate_markdown_stream,
+)
+from app.services.thumbnail import ensure_thumbnail
 from app.services.model_registry import (
     default_model_key,
     extract_llm_model_key,
@@ -40,25 +56,64 @@ from app.services.mineru import count_pdf_pages, paper_data_dir
 from app.services.parse_time import parse_elapsed_seconds
 from app.services.parse_worker import (
     get_parse_queue,
+    is_parse_job_active,
     remove_parse_queue,
     reset_parse_queue,
+    resume_stuck_parse_jobs,
     run_parse_pipeline,
+    schedule_parse_pipeline,
 )
 
 router = APIRouter(prefix="/api/papers", tags=["papers"])
 
 
-def _to_summary(p: Paper) -> PaperSummary:
-    return PaperSummary(
-        id=p.id,
-        title=p.title,
-        status=p.status,
-        total_pages=p.total_pages,
-        parsed_pages=p.parsed_pages,
-        parse_elapsed_seconds=parse_elapsed_seconds(p),
-        error_message=p.error_message,
-        created_at=p.created_at,
-    )
+def _paper_has_note(user_id: int, paper_id: int) -> bool:
+    note_path = paper_data_dir(user_id, paper_id) / "note.md"
+    return note_path.exists() and note_path.stat().st_size > 0
+
+
+def _paper_cover_url(p: Paper) -> str | None:
+    if p.cover_status == "done" and p.cover_path and Path(p.cover_path).exists():
+        return f"/api/papers/{p.id}/cover?v=1"
+    return None
+
+
+def _to_summaries(session: Session, user_id: int, papers: list[Paper]) -> list[PaperSummary]:
+    paper_ids = [p.id for p in papers]
+    folder_meta = paper_folder_meta(session, paper_ids)
+    return [
+        PaperSummary(
+            id=p.id,
+            title=p.title,
+            author=p.author or "",
+            status=p.status,
+            total_pages=p.total_pages,
+            parsed_pages=p.parsed_pages,
+            parse_elapsed_seconds=parse_elapsed_seconds(p),
+            error_message=p.error_message,
+            created_at=p.created_at,
+            folder_ids=folder_meta.get(p.id, ([], []))[0],
+            folder_names=folder_meta.get(p.id, ([], []))[1],
+            has_note=_paper_has_note(user_id, p.id),
+            thumbnail_url=(
+                f"/api/papers/{p.id}/thumbnail?v=2"
+                if p.pdf_path and Path(p.pdf_path).exists()
+                else None
+            ),
+            summary=p.summary or "",
+            note_read_progress=p.note_read_progress or 0,
+            note_last_scroll_top=p.note_last_scroll_top or 0,
+            note_last_read_at=p.note_last_read_at,
+            note_read_epoch=p.note_read_epoch or 0,
+            cover_url=_paper_cover_url(p),
+            cover_status=p.cover_status or "",
+        )
+        for p in papers
+    ]
+
+
+def _to_summary(session: Session, user_id: int, p: Paper) -> PaperSummary:
+    return _to_summaries(session, user_id, [p])[0]
 
 
 def _ensure_total_pages(session: Session, paper: Paper) -> None:
@@ -88,13 +143,33 @@ def _ensure_total_pages(session: Session, paper: Paper) -> None:
 def list_papers(
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_session)],
+    folder_id: int | None = Query(default=None),
+    uncategorized: bool = Query(default=False),
+    q: str | None = Query(default=None),
+    sort: str = Query(default="created_at_desc"),
 ):
-    papers = session.exec(
-        select(Paper).where(Paper.user_id == user.id).order_by(Paper.created_at.desc())
-    ).all()
+    stmt = select(Paper).where(Paper.user_id == user.id)
+    if uncategorized:
+        stmt = stmt.where(
+            ~exists(
+                select(PaperFolder.paper_id).where(PaperFolder.paper_id == Paper.id)
+            )
+        )
+    elif folder_id is not None:
+        stmt = stmt.join(PaperFolder, PaperFolder.paper_id == Paper.id).where(
+            PaperFolder.folder_id == folder_id
+        )
+    if q and q.strip():
+        keyword = f"%{q.strip()}%"
+        stmt = stmt.where((Paper.title.like(keyword)) | (Paper.author.like(keyword)))
+    if sort == "title_asc":
+        stmt = stmt.order_by(Paper.title.asc())
+    else:
+        stmt = stmt.order_by(Paper.created_at.desc())
+    papers = session.exec(stmt).all()
     for paper in papers:
         _ensure_total_pages(session, paper)
-    return [_to_summary(p) for p in papers]
+    return _to_summaries(session, user.id, papers)
 
 
 @router.get("/{paper_id}", response_model=PaperDetail)
@@ -126,19 +201,123 @@ def get_paper(
             session.add(note)
             session.commit()
             stored_model = repaired
+    summary = _to_summary(session, user.id, paper).model_dump()
     return PaperDetail(
-        **_to_summary(paper).model_dump(),
+        **summary,
         pdf_url=f"/api/papers/{paper_id}/pdf",
         markdown_url=md_url,
         has_markdown=bool(paper.markdown_path and Path(paper.markdown_path).exists()),
+        has_markdown_translation=has_translation(user.id, paper_id),
         note_url=f"/api/papers/{paper_id}/note" if has_note else None,
-        has_note=has_note,
         note_version=note.version if note else 0,
         note_model=stored_model,
         note_model_label=paper_note_model_label(
             session, user.id, paper_id, stored_model
         ),
     )
+
+
+@router.patch("/{paper_id}", response_model=PaperSummary)
+def update_paper(
+    paper_id: int,
+    body: PaperUpdateBody,
+    background_tasks: BackgroundTasks,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_session)],
+):
+    from app.services.paper_enrichment import run_paper_enrichment
+
+    paper = session.get(Paper, paper_id)
+    if not paper or paper.user_id != user.id:
+        raise HTTPException(404, "论文不存在")
+    regen_card = False
+    if body.title is not None:
+        title = body.title.strip()
+        if not title:
+            raise HTTPException(400, "标题不能为空")
+        paper.title = title
+    if body.author is not None:
+        paper.author = body.author.strip()
+    if body.folder_ids is not None:
+        old_folder_ids = get_paper_folder_ids(session, paper_id)
+        sync_paper_folders(session, user.id, paper_id, body.folder_ids)
+        new_folder_ids = get_paper_folder_ids(session, paper_id)
+        regen_card = should_regenerate_card_on_folder_change(
+            old_folder_ids, new_folder_ids
+        )
+    session.add(paper)
+    session.commit()
+    session.refresh(paper)
+    if (
+        regen_card
+        and paper.status in ("parsed", "done")
+    ):
+        paper.summary = ""
+        paper.summary_generated_at = None
+        paper.cover_status = "generating"
+        session.add(paper)
+        session.commit()
+        session.refresh(paper)
+        background_tasks.add_task(
+            run_paper_enrichment, paper_id, user.id, force=True
+        )
+    return _to_summary(session, user.id, paper)
+
+
+@router.patch("/{paper_id}/note-read-progress", response_model=PaperSummary)
+def update_note_read_progress(
+    paper_id: int,
+    body: NoteReadProgressBody,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_session)],
+):
+    paper = session.get(Paper, paper_id)
+    if not paper or paper.user_id != user.id:
+        raise HTTPException(404, "论文不存在")
+
+    server_epoch = paper.note_read_epoch or 0
+    client_epoch = body.note_read_epoch
+    if client_epoch < server_epoch:
+        return _to_summary(session, user.id, paper)
+
+    progress = max(paper.note_read_progress or 0, body.progress)
+    scroll_top = body.scroll_top
+    if client_epoch == server_epoch:
+        scroll_top = max(paper.note_last_scroll_top or 0, body.scroll_top)
+
+    paper.note_read_progress = progress
+    paper.note_last_scroll_top = scroll_top
+    paper.note_last_read_at = utc_now()
+    session.add(paper)
+    session.commit()
+    session.refresh(paper)
+    return _to_summary(session, user.id, paper)
+
+
+@router.post("/{paper_id}/enrichment", response_model=PaperSummary)
+def trigger_paper_enrichment(
+    paper_id: int,
+    background_tasks: BackgroundTasks,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_session)],
+    force: bool = Query(default=False),
+):
+    from app.services.paper_enrichment import run_paper_enrichment
+
+    paper = session.get(Paper, paper_id)
+    if not paper or paper.user_id != user.id:
+        raise HTTPException(404, "论文不存在")
+    if paper.status not in ("parsed", "done", "noting", "failed"):
+        raise HTTPException(400, "论文尚未解析完成")
+    if force:
+        paper.summary = ""
+        paper.summary_generated_at = None
+        paper.cover_status = "generating"
+        session.add(paper)
+        session.commit()
+    background_tasks.add_task(run_paper_enrichment, paper_id, user.id, force=force)
+    session.refresh(paper)
+    return _to_summary(session, user.id, paper)
 
 
 @router.delete("/{paper_id}", status_code=204)
@@ -155,6 +334,14 @@ def delete_paper(
         session.delete(note)
     for asset in session.exec(select(Asset).where(Asset.paper_id == paper_id)).all():
         session.delete(asset)
+    for link in session.exec(select(PaperFolder).where(PaperFolder.paper_id == paper_id)).all():
+        session.delete(link)
+    for conv in session.exec(select(Conversation).where(Conversation.paper_id == paper_id)).all():
+        for msg in session.exec(
+            select(Message).where(Message.conversation_id == conv.id)
+        ).all():
+            session.delete(msg)
+        session.delete(conv)
     session.delete(paper)
     session.commit()
 
@@ -201,7 +388,7 @@ async def upload_paper(
 
     get_parse_queue(paper.id)
     background_tasks.add_task(run_parse_pipeline, paper.id, user.id)
-    return _to_summary(paper)
+    return _to_summary(session, user.id, paper)
 
 
 @router.get("/{paper_id}/events")
@@ -225,6 +412,11 @@ async def paper_events(
         }
 
     async def event_generator():
+        if snapshot["status"] in ("parsing", "uploading") and not is_parse_job_active(
+            paper_id
+        ):
+            await resume_stuck_parse_jobs()
+
         status = snapshot["status"]
         if status == "done":
             yield StreamEvent(type="status", data={"status": "done"}).to_sse()
@@ -309,6 +501,60 @@ def get_pdf(
     if not path.exists():
         raise HTTPException(404, "PDF 不存在")
     return FileResponse(path, media_type="application/pdf", filename=path.name)
+
+
+@router.get("/{paper_id}/thumbnail")
+def get_thumbnail(
+    paper_id: int,
+    session: Annotated[Session, Depends(get_session)],
+    token: str | None = None,
+    creds: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(security)
+    ] = None,
+):
+    from fastapi.responses import FileResponse
+
+    raw_token = creds.credentials if creds else token
+    if not raw_token:
+        raise HTTPException(401, "请先登录")
+    payload = decode_token(raw_token)
+    user_id = int(payload["sub"])
+
+    paper = session.get(Paper, paper_id)
+    if not paper or paper.user_id != user_id:
+        raise HTTPException(404, "论文不存在")
+    thumb = ensure_thumbnail(user_id, paper_id, paper.pdf_path)
+    if not thumb:
+        raise HTTPException(404, "缩略图不可用")
+    return FileResponse(thumb, media_type="image/jpeg", filename="thumbnail.jpg")
+
+
+@router.get("/{paper_id}/cover")
+def get_cover(
+    paper_id: int,
+    session: Annotated[Session, Depends(get_session)],
+    token: str | None = None,
+    creds: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(security)
+    ] = None,
+):
+    from fastapi.responses import FileResponse
+
+    raw_token = creds.credentials if creds else token
+    if not raw_token:
+        raise HTTPException(401, "请先登录")
+    payload = decode_token(raw_token)
+    user_id = int(payload["sub"])
+
+    paper = session.get(Paper, paper_id)
+    if not paper or paper.user_id != user_id:
+        raise HTTPException(404, "论文不存在")
+    if not paper.cover_path or paper.cover_status != "done":
+        raise HTTPException(404, "封面不可用")
+    path = Path(paper.cover_path)
+    if not path.exists():
+        raise HTTPException(404, "封面不存在")
+    return FileResponse(path, media_type="image/jpeg", filename="cover.jpg")
 
 
 @router.get("/{paper_id}/note")
@@ -826,6 +1072,10 @@ async def regenerate_note(
         raise HTTPException(400, str(e))
 
     paper.status = "noting"
+    paper.note_read_progress = 0
+    paper.note_last_scroll_top = 0
+    paper.note_last_read_at = None
+    paper.note_read_epoch = (paper.note_read_epoch or 0) + 1
     session.add(paper)
     session.commit()
 
@@ -859,6 +1109,103 @@ def get_markdown(
     if not path.exists():
         raise HTTPException(404, "Markdown 不存在")
     return PlainTextResponse(path.read_text(encoding="utf-8"), media_type="text/plain")
+
+
+@router.get("/{paper_id}/markdown/translation")
+def get_markdown_translation(
+    paper_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_session)],
+):
+    from fastapi.responses import PlainTextResponse
+
+    paper = session.get(Paper, paper_id)
+    if not paper or paper.user_id != user.id:
+        raise HTTPException(404, "论文不存在")
+    try:
+        content = load_translation(user.id, paper_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "中文翻译不存在")
+    return PlainTextResponse(content, media_type="text/plain")
+
+
+@router.post("/{paper_id}/markdown/translate")
+async def translate_markdown_api(
+    paper_id: int,
+    body: MarkdownTranslateBody,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_session)],
+):
+    paper = session.get(Paper, paper_id)
+    if not paper or paper.user_id != user.id:
+        raise HTTPException(404, "论文不存在")
+    if not paper.markdown_path:
+        raise HTTPException(400, "Markdown 尚未就绪")
+    md_path = Path(paper.markdown_path)
+    if not md_path.exists():
+        raise HTTPException(404, "Markdown 不存在")
+
+    source = md_path.read_text(encoding="utf-8")
+    if not source.strip():
+        raise HTTPException(400, "Markdown 内容为空")
+
+    user_id = user.id
+    model_key = body.model
+
+    async def event_generator():
+        queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
+
+        async def emit(ev: StreamEvent) -> None:
+            await queue.put(ev)
+
+        async def worker() -> None:
+            from app.db.session import get_engine
+
+            try:
+                with Session(get_engine()) as worker_session:
+                    await run_translate_markdown_stream(
+                        session=worker_session,
+                        user_id=user_id,
+                        paper_id=paper_id,
+                        source_markdown=source,
+                        model_key=model_key,
+                        emit=emit,
+                    )
+                await emit(StreamEvent(type="done", data={}))
+            except ValueError as e:
+                await emit(
+                    StreamEvent(type="status", data={"status": "failed", "error": str(e)})
+                )
+                await emit(StreamEvent(type="done", data={}))
+            except RuntimeError as e:
+                await emit(
+                    StreamEvent(type="status", data={"status": "failed", "error": str(e)})
+                )
+                await emit(StreamEvent(type="done", data={}))
+            except Exception as e:
+                await emit(
+                    StreamEvent(type="status", data={"status": "failed", "error": str(e)})
+                )
+                await emit(StreamEvent(type="done", data={}))
+            finally:
+                await queue.put(None)
+
+        task = asyncio.create_task(worker())
+        try:
+            while True:
+                ev = await queue.get()
+                if ev is None:
+                    break
+                yield ev.to_sse()
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/{paper_id}/files/{file_path:path}")

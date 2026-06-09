@@ -3,13 +3,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, chat, models, papers, users
+from app.api import auth, chat, folders, models, papers, users
 from app.db.session import init_db
+from app.services.parse_worker import resume_stuck_parse_jobs
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
+    await resume_stuck_parse_jobs()
     yield
 
 
@@ -27,6 +29,7 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(models.router)
 app.include_router(papers.router)
+app.include_router(folders.router)
 app.include_router(chat.router)
 
 

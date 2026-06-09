@@ -21,6 +21,7 @@ async def complete_text(
             endpoint=endpoint,
             input_messages=input_messages,
             timeout=timeout,
+            disable_thinking=not enable_thinking,
         )
     return await ark_client.complete_text(
         model=endpoint.model,
@@ -68,3 +69,37 @@ async def run_with_tool_loop(
         api_url=endpoint.api_url,
         api_key=endpoint.api_key,
     )
+
+
+async def stream_complete_text(
+    *,
+    endpoint: ModelEndpoint,
+    input_messages: list[dict],
+    emit: Callable[[StreamEvent], Awaitable[None]],
+    enable_thinking: bool = False,
+    timeout: float = 600.0,
+) -> str:
+    if endpoint.provider == "openai":
+        return await openai_client.stream_complete_text(
+            endpoint=endpoint,
+            input_messages=input_messages,
+            emit=emit,
+            timeout=timeout,
+            disable_thinking=not enable_thinking,
+        )
+    parts: list[str] = []
+    async for ev in ark_client.stream_response(
+        model=endpoint.model,
+        input_messages=input_messages,
+        tools=[],
+        api_url=endpoint.api_url,
+        api_key=endpoint.api_key,
+    ):
+        if ev.type != "content":
+            continue
+        delta = ev.data.get("delta", "")
+        if not delta:
+            continue
+        parts.append(delta)
+        await emit(StreamEvent(type="content", data={"delta": delta}))
+    return "".join(parts).strip()

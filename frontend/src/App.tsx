@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { useAuthStore } from "./store/auth";
 import LoginPage from "./pages/LoginPage";
-import HomePage from "./pages/HomePage";
+import LibraryPage from "./pages/LibraryPage";
 import ModelsPage from "./pages/ModelsPage";
 import PaperPage from "./pages/PaperPage";
 
@@ -30,10 +30,27 @@ export default function App() {
           path="/"
           element={
             <PrivateRoute>
-              <HomePage />
+              <LibraryPage />
             </PrivateRoute>
           }
         />
+        <Route
+          path="/library"
+          element={
+            <PrivateRoute>
+              <LibraryPage />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/library/folders/:folderId"
+          element={
+            <PrivateRoute>
+              <LibraryPage />
+            </PrivateRoute>
+          }
+        />
+        <Route path="/library/upload" element={<Navigate to="/" replace />} />
         <Route
           path="/models"
           element={

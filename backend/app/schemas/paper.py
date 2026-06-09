@@ -8,23 +8,52 @@ from app.schemas.chat import ChatAttachmentIn
 class PaperSummary(BaseModel):
     id: int
     title: str
+    author: str = ""
     status: str
     total_pages: int
     parsed_pages: int
     parse_elapsed_seconds: int = 0
     error_message: str
     created_at: datetime
+    folder_ids: list[int] = []
+    folder_names: list[str] = []
+    has_note: bool = False
+    thumbnail_url: str | None = None
+    summary: str = ""
+    note_read_progress: int = 0
+    note_last_scroll_top: int = 0
+    note_last_read_at: datetime | None = None
+    note_read_epoch: int = 0
+    cover_url: str | None = None
+    cover_status: str = ""
+
+
+class NoteReadProgressBody(BaseModel):
+    progress: int = Field(ge=0, le=100)
+    scroll_top: int = Field(ge=0, default=0)
+    note_read_epoch: int = Field(ge=0, default=0)
+
+
+class PaperUpdateBody(BaseModel):
+    title: str | None = None
+    author: str | None = None
+    folder_ids: list[int] | None = None
 
 
 class PaperDetail(PaperSummary):
     pdf_url: str
     markdown_url: str | None = None
     has_markdown: bool = False
+    has_markdown_translation: bool = False
     note_url: str | None = None
     has_note: bool = False
     note_version: int = 0
     note_model: str = ""
     note_model_label: str = ""
+
+
+class MarkdownTranslateBody(BaseModel):
+    model: str = "deepseek-v4-flash"
 
 
 class NoteRegenerateBody(BaseModel):

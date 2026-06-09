@@ -18,10 +18,25 @@ class User(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class Folder(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    name: str = ""
+    parent_id: int | None = Field(default=None, index=True)
+    sort_order: int = 0
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class PaperFolder(SQLModel, table=True):
+    paper_id: int = Field(foreign_key="paper.id", primary_key=True)
+    folder_id: int = Field(foreign_key="folder.id", primary_key=True)
+
+
 class Paper(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(index=True)
     title: str = "未命名论文"
+    author: str = ""
     status: str = "uploading"  # uploading|parsing|parsed|noting|done|failed
     pdf_path: str = ""
     mineru_task_id: str = ""
@@ -32,6 +47,14 @@ class Paper(SQLModel, table=True):
     parse_started_at: datetime | None = None
     parse_finished_at: datetime | None = None
     error_message: str = ""
+    summary: str = ""
+    summary_generated_at: datetime | None = None
+    note_read_progress: int = 0
+    note_last_scroll_top: int = 0
+    note_last_read_at: datetime | None = None
+    note_read_epoch: int = 0
+    cover_path: str = ""
+    cover_status: str = ""
     created_at: datetime = Field(default_factory=utc_now)
 
 

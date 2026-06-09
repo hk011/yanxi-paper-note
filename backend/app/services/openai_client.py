@@ -149,17 +149,20 @@ async def complete_text(
     endpoint: ModelEndpoint,
     input_messages: list[dict],
     timeout: float = 60.0,
+    disable_thinking: bool = True,
 ) -> str:
     url = _chat_url(endpoint.api_url)
     headers = {
         "Authorization": f"Bearer {endpoint.api_key}",
         "Content-Type": "application/json",
     }
-    body = {
+    body: dict[str, Any] = {
         "model": endpoint.model,
         "messages": _to_openai_messages(input_messages),
         "stream": False,
     }
+    if disable_thinking and "deepseek" in endpoint.model.lower():
+        body["thinking"] = {"type": "disabled"}
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(url, headers=headers, json=body)
         if resp.is_error:
@@ -365,3 +368,58 @@ async def run_with_tool_loop(
                 )
 
     return "".join(all_content)
+
+
+async def stream_complete_text(
+    *,
+    endpoint: ModelEndpoint,
+    input_messages: list[dict],
+    emit: Callable[[StreamEvent], Awaitable[None]],
+    timeout: float = 600.0,
+    disable_thinking: bool = True,
+) -> str:
+    """流式补全，仅输出正文 content，不发射 thinking 事件。"""
+    url = _chat_url(endpoint.api_url)
+    headers = {
+        "Authorization": f"Bearer {endpoint.api_key}",
+        "Content-Type": "application/json",
+    }
+    body: dict[str, Any] = {
+        "model": endpoint.model,
+        "messages": _to_openai_messages(input_messages),
+        "stream": True,
+    }
+    if disable_thinking and "deepseek" in endpoint.model.lower():
+        body["thinking"] = {"type": "disabled"}
+
+    parts: list[str] = []
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for attempt in range(3):
+            async with client.stream("POST", url, headers=headers, json=body) as resp:
+                if resp.is_error:
+                    if resp.status_code in (429, 400, 503) and attempt < 2:
+                        await asyncio.sleep(1.5 * (attempt + 1))
+                        continue
+                    await _raise_api_error(resp)
+
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    payload = line[5:].strip()
+                    if payload == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+
+                    for choice in chunk.get("choices") or []:
+                        delta = choice.get("delta") or {}
+                        text = _delta_text(delta)
+                        if not text:
+                            continue
+                        parts.append(text)
+                        await emit(StreamEvent(type="content", data={"delta": text}))
+            break
+
+    return "".join(parts).strip()

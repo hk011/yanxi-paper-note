@@ -72,21 +72,50 @@ export interface UserProfile {
   created_at: string;
 }
 
+export interface FolderNode {
+  id: number;
+  name: string;
+  parent_id: number | null;
+  paper_count: number;
+  children: FolderNode[];
+  created_at: string;
+}
+
 export interface PaperSummary {
   id: number;
   title: string;
+  author: string;
   status: string;
   total_pages: number;
   parsed_pages: number;
   parse_elapsed_seconds: number;
   error_message: string;
   created_at: string;
+  folder_ids: number[];
+  folder_names: string[];
+  has_note: boolean;
+  thumbnail_url: string | null;
+  summary: string;
+  note_read_progress: number;
+  note_last_scroll_top: number;
+  note_last_read_at: string | null;
+  note_read_epoch: number;
+  cover_url: string | null;
+  cover_status: string;
+}
+
+export interface PaperListParams {
+  folderId?: number | null;
+  uncategorized?: boolean;
+  q?: string;
+  sort?: "created_at_desc" | "title_asc";
 }
 
 export interface PaperDetail extends PaperSummary {
   pdf_url: string;
   markdown_url: string | null;
   has_markdown: boolean;
+  has_markdown_translation: boolean;
   note_url: string | null;
   has_note: boolean;
   note_version: number;
@@ -252,9 +281,65 @@ export const api = {
       body: JSON.stringify({ old_password, new_password }),
     }),
 
-  listPapers: () => request<PaperSummary[]>("/api/papers"),
+  listPapers: (params?: PaperListParams) => {
+    const search = new URLSearchParams();
+    if (params?.folderId != null) search.set("folder_id", String(params.folderId));
+    if (params?.uncategorized) search.set("uncategorized", "true");
+    if (params?.q?.trim()) search.set("q", params.q.trim());
+    if (params?.sort) search.set("sort", params.sort);
+    const qs = search.toString();
+    return request<PaperSummary[]>(`/api/papers${qs ? `?${qs}` : ""}`);
+  },
+
+  updatePaper: (
+    id: number,
+    body: { title?: string; author?: string; folder_ids?: number[] }
+  ) =>
+    request<PaperSummary>(`/api/papers/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  listFolders: () => request<FolderNode[]>("/api/folders"),
+
+  createFolder: (body: { name: string; parent_id?: number | null }) =>
+    request<FolderNode>("/api/folders", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  updateFolder: (
+    id: number,
+    body: { name?: string; parent_id?: number | null }
+  ) =>
+    request<FolderNode>(`/api/folders/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  deleteFolder: (id: number) =>
+    request<void>(`/api/folders/${id}`, { method: "DELETE" }),
 
   getPaper: (id: number) => request<PaperDetail>(`/api/papers/${id}`),
+
+  updateNoteReadProgress: (
+    id: number,
+    body: {
+      progress: number;
+      scroll_top: number;
+      note_read_epoch: number;
+    }
+  ) =>
+    request<PaperSummary>(`/api/papers/${id}/note-read-progress`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  triggerPaperEnrichment: (id: number, force = false) =>
+    request<PaperSummary>(
+      `/api/papers/${id}/enrichment${force ? "?force=true" : ""}`,
+      { method: "POST" }
+    ),
 
   uploadPaper: async (file: File) => {
     const form = new FormData();
@@ -279,6 +364,82 @@ export const api = {
     });
     if (!res.ok) throw new Error("Markdown 未就绪");
     return res.text();
+  },
+
+  fetchMarkdownTranslation: async (id: number) => {
+    const token = getToken();
+    const res = await fetch(`/api/papers/${id}/markdown/translation`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error("加载中文翻译失败");
+    return res.text();
+  },
+
+  subscribeMarkdownTranslateStream: (
+    id: number,
+    model: string,
+    onEvent: StreamHandler,
+    onDone?: () => void
+  ) => {
+    const token = getToken();
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/papers/${id}/markdown/translate`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ model }),
+          signal: controller.signal,
+        });
+        if (!res.ok || !res.body) {
+          onEvent({ type: "status", status: "failed", error: "翻译请求失败" });
+          onDone?.();
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let finished = false;
+        const finish = () => {
+          if (finished) return;
+          finished = true;
+          onDone?.();
+        };
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() || "";
+          for (const part of parts) {
+            const line = part.trim();
+            if (!line.startsWith("data:")) continue;
+            try {
+              const data = JSON.parse(line.slice(5).trim()) as StreamEvent;
+              onEvent(data);
+              if (data.type === "done") finish();
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+        finish();
+      } catch (e) {
+        if (!(e instanceof DOMException && e.name === "AbortError")) {
+          onEvent({ type: "status", status: "failed", error: "连接中断" });
+        }
+        onDone?.();
+      }
+    })();
+
+    return () => controller.abort();
   },
 
   fetchNote: async (id: number) => {
@@ -504,6 +665,11 @@ export function buildPaperFileUrl(
 
 export function buildPaperPdfUrl(paperId: number): string {
   return withToken(`/api/papers/${paperId}/pdf`);
+}
+
+export function buildPaperCoverUrl(coverUrl: string | null | undefined): string | null {
+  if (!coverUrl) return null;
+  return buildAuthenticatedUrl(coverUrl);
 }
 
 export type StreamHandler = (event: StreamEvent) => void;

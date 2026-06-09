@@ -67,6 +67,45 @@ def _migrate_db() -> None:
             conn.exec_driver_sql("ALTER TABLE user ADD COLUMN avatar_path VARCHAR DEFAULT ''")
             conn.commit()
 
+        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(paper)")}
+        if "author" not in cols:
+            conn.exec_driver_sql("ALTER TABLE paper ADD COLUMN author TEXT DEFAULT ''")
+            conn.commit()
+
+        paper_migrations = [
+            ("summary", "ALTER TABLE paper ADD COLUMN summary TEXT DEFAULT ''"),
+            (
+                "summary_generated_at",
+                "ALTER TABLE paper ADD COLUMN summary_generated_at DATETIME",
+            ),
+            (
+                "note_read_progress",
+                "ALTER TABLE paper ADD COLUMN note_read_progress INTEGER DEFAULT 0",
+            ),
+            (
+                "note_last_scroll_top",
+                "ALTER TABLE paper ADD COLUMN note_last_scroll_top INTEGER DEFAULT 0",
+            ),
+            (
+                "note_last_read_at",
+                "ALTER TABLE paper ADD COLUMN note_last_read_at DATETIME",
+            ),
+            (
+                "note_read_epoch",
+                "ALTER TABLE paper ADD COLUMN note_read_epoch INTEGER DEFAULT 0",
+            ),
+            ("cover_path", "ALTER TABLE paper ADD COLUMN cover_path TEXT DEFAULT ''"),
+            (
+                "cover_status",
+                "ALTER TABLE paper ADD COLUMN cover_status TEXT DEFAULT ''",
+            ),
+        ]
+        for col_name, sql in paper_migrations:
+            cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(paper)")}
+            if col_name not in cols:
+                conn.exec_driver_sql(sql)
+                conn.commit()
+
 
 def _backfill_user_account_codes() -> None:
     with Session(get_engine()) as session:

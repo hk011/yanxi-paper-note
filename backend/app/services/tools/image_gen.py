@@ -1,5 +1,6 @@
 """文生图（gen_figure 工具后端实现）：豆包 Seedream / 商汤 Sensenova"""
 
+import asyncio
 import json
 import logging
 import random
@@ -11,6 +12,8 @@ import httpx
 
 from app.core.config import get_settings
 from app.prompts.image_gen import (
+    COVER_SIZE_ARK,
+    COVER_SIZE_SENSENOVA,
     NOTE_FIGURE_SIZE,
     SENSENOVA_FIGURE_SIZE,
     enhance_figure_prompt,
@@ -19,6 +22,10 @@ from app.prompts.image_gen import (
 logger = logging.getLogger(__name__)
 
 ImageModelId = Literal["ark", "sensenova"]
+
+# 2K 文生图可能较慢；read 给足 10 分钟
+SENSENOVA_HTTP_TIMEOUT = httpx.Timeout(connect=30.0, read=600.0, write=30.0, pool=30.0)
+SENSENOVA_COVER_RETRIES = 2
 
 
 def resolve_image_model(model_id: str) -> ImageModelId:
@@ -131,6 +138,7 @@ async def _generate_sensenova(
     *,
     size: str,
     ref_image_path: str | None,
+    max_retries: int = 0,
 ) -> tuple[str, str]:
     if ref_image_path:
         logger.warning("Sensenova 不支持图生图参考，已忽略 ref_image_path")
@@ -148,10 +156,37 @@ async def _generate_sensenova(
         "n": 1,
     }
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
-        resp = await client.post(url, headers=headers, json=body)
-        resp.raise_for_status()
-        data = resp.json()
+    last_exc: Exception | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            async with httpx.AsyncClient(timeout=SENSENOVA_HTTP_TIMEOUT) as client:
+                resp = await client.post(url, headers=headers, json=body)
+                if resp.status_code >= 400:
+                    logger.warning(
+                        "Sensenova image API error status=%s body=%s",
+                        resp.status_code,
+                        resp.text[:500],
+                    )
+                resp.raise_for_status()
+                data = resp.json()
+            break
+        except (httpx.ReadTimeout, httpx.ConnectTimeout) as exc:
+            last_exc = exc
+            if attempt < max_retries:
+                logger.warning(
+                    "Sensenova 请求超时 attempt=%s/%s size=%s，%ss 后重试",
+                    attempt + 1,
+                    max_retries + 1,
+                    size,
+                    10,
+                )
+                await asyncio.sleep(10)
+                continue
+            raise
+    else:
+        if last_exc:
+            raise last_exc
+        raise RuntimeError("Sensenova 图像生成失败")
 
     items = data.get("data") or []
     if not items:
@@ -245,6 +280,35 @@ async def generate_figure(
         "remote_url": image_url,
         "image_model": used_model,
     }
+
+
+async def generate_cover(*, prompt: str, output_path: Path) -> Path:
+    """卡片封面：优先豆包 Seedream，未配置时 fallback 商汤 SenseNova。"""
+    settings = get_settings()
+    has_ark = bool(settings.ark_key.strip())
+    has_sensenova = bool(settings.sensenova_api_key.strip())
+    if not has_ark and not has_sensenova:
+        raise ValueError("文生图未配置 API Key（Seedream 或 Sensenova）")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    text = prompt.strip()
+
+    if has_ark:
+        image_url, provider = await _generate_ark(
+            text, size=COVER_SIZE_ARK, ref_image_path=None
+        )
+    else:
+        image_url, provider = await _generate_sensenova(
+            text,
+            size=COVER_SIZE_SENSENOVA,
+            ref_image_path=None,
+            max_retries=SENSENOVA_COVER_RETRIES,
+        )
+
+    logger.info("generate_cover provider=%s dest=%s", provider, output_path)
+    content = await _download_image(image_url)
+    output_path.write_bytes(content)
+    return output_path
 
 
 def format_tool_output(result: dict, paper_id: int) -> str:
