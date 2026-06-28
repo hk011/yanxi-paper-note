@@ -110,6 +110,16 @@ npm run dev
 2. 上传 PDF 论文，等待解析完成
 3. 生成解读笔记，或使用论文问答
 
+## QwenPaw Skill 集成（供其他 Agent 调用）
+
+通过 [QwenPaw Skill](https://github.com/agentscope-ai/QwenPaw) 或其他支持 `SKILL.md` 的 Agent，调用研析完整流水线（解析 + 笔记 + 带图 PDF 导出）。
+
+1. 在 `.env` 配置 `yanxi_api_key`（见 `.env.example`）
+2. 按 [`integrations/qwenpaw-skill/README.md`](integrations/qwenpaw-skill/README.md) 导入 Skill 并配置 `YANXI_API_KEY`
+3. Agent 执行 `yanxi_cli.py process <pdf>`，用 `send_file_to_user` 交付 `*_yanxi_note.pdf`
+
+Skill API：`POST /api/skill/process`、`GET /api/skill/papers/{id}/note/export/pdf` 等，详见 Skill 文档。
+
 ## 数据库
 
 - **SQLite** 单文件：`backend/yanxi.db`
