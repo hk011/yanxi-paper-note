@@ -121,6 +121,85 @@ def list_unreferenced_gen_assets(data_dir: Path, content: str) -> list[str]:
     return out
 
 
+def _filename_hash_distance(a: str, b: str) -> int:
+  """比较图片文件名（不含扩展名）的差异字符数，用于纠正模型写错哈希。"""
+  return sum(x != y for x, y in zip(a, b)) + abs(len(a) - len(b))
+
+
+def _list_image_rel_paths(data_dir: Path) -> list[str]:
+    from app.services.content_builder import list_mineru_images
+
+    rels: list[str] = []
+    seen: set[str] = set()
+    mineru = data_dir / "mineru"
+    for rel in list_mineru_images(mineru):
+        if rel not in seen:
+            seen.add(rel)
+            rels.append(rel)
+    for folder in ("assets", "images/gen", "chat_uploads"):
+        base = data_dir / folder
+        if not base.is_dir():
+            continue
+        for p in sorted(base.iterdir()):
+            if p.suffix.lower() not in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+                continue
+            rel = f"{folder}/{p.name}".replace("\\", "/")
+            if rel not in seen:
+                seen.add(rel)
+                rels.append(rel)
+    return rels
+
+
+def fuzzy_resolve_image_rel(data_dir: Path, rel: str, *, max_distance: int = 4) -> str | None:
+    """笔记中引用的图片路径若因哈希笔误找不到文件，在本地目录中找最接近的文件名。"""
+    from app.services.note_sections import normalize_figure_rel_path
+
+    clean = normalize_figure_rel_path(rel)
+    if not clean:
+        return None
+    want_name = Path(clean).name
+    want_stem = Path(clean).stem
+    want_ext = Path(clean).suffix.lower()
+    if len(want_stem) < 16:
+        return None
+
+    best_rel: str | None = None
+    best_dist = max_distance + 1
+    for cand in _list_image_rel_paths(data_dir):
+        if Path(cand).suffix.lower() != want_ext:
+            continue
+        dist = _filename_hash_distance(Path(cand).stem, want_stem)
+        if dist < best_dist:
+            best_dist = dist
+            best_rel = cand
+    return best_rel if best_dist <= max_distance else None
+
+
+def repair_note_image_refs(content: str, data_dir: Path, paper_id: int) -> str:
+    """将笔记中无法解析的图片路径修正为磁盘上最接近的真实路径。"""
+    from app.services.note_sections import normalize_figure_rel_path, resolve_paper_file_path
+
+    if not content.strip():
+        return content
+    api_prefix = f"/api/papers/{paper_id}/files/"
+
+    def repl(m: re.Match[str]) -> str:
+        alt, raw = m.group(1), m.group(2).strip()
+        if raw.startswith("data:"):
+            return m.group(0)
+        rel = normalize_figure_rel_path(raw)
+        if resolve_paper_file_path(data_dir, rel):
+            return m.group(0)
+        corrected = fuzzy_resolve_image_rel(data_dir, rel)
+        if not corrected:
+            return m.group(0)
+        if raw.startswith("/api/") or raw.startswith(api_prefix):
+            return f"![{alt}]({api_prefix}{corrected})"
+        return f"![{alt}]({corrected})"
+
+    return _API_IMG_RE.sub(repl, content)
+
+
 def prepare_note_content_for_save(
     *,
     content: str,

@@ -27,7 +27,9 @@ metadata:
 ## 配置
 
 - `YANXI_BASE_URL` = `http://127.0.0.1:8000`
-- `YANXI_API_KEY` = 与 `.env` 中 `yanxi_api_key` 相同
+- `YANXI_API_KEY` = 与 .env 中 yanxi_api_key 相同
+
+
 
 ## 标准流程
 
@@ -42,6 +44,8 @@ python scripts/yanxi_cli.py process "D:/papers/attention.pdf"
 send_file_to_user <stdout 打印的路径>
 ```
 
+
+
 ## 已有 paper_id
 
 ```bash
@@ -49,6 +53,8 @@ python scripts/yanxi_cli.py download-pdf <paper_id> -o "D:/out/note.pdf"
 # PDF 仍失败时：
 python scripts/yanxi_cli.py download-zip <paper_id> -o "D:/out/note.zip"
 ```
+
+
 
 ## 故障排查
 
@@ -58,6 +64,8 @@ python scripts/yanxi_cli.py download-zip <paper_id> -o "D:/out/note.zip"
 | PDF 500 / 无法打开 | 不要自制 PDF；用 CLI 下载或发 zip；重启后端并 `pip install Pillow`                 |
 | 图片缺失           | 确认 stderr 嵌入数 > 0；检查 `backend/data/.../mineru/images` 或 MinerU zip |
 | 401            | 检查 `YANXI_API_KEY`                                                 |
+
+
 
 
 ## 参考

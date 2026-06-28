@@ -4,8 +4,8 @@
 
 上传英文 PDF 论文，自动解析为结构化 Markdown，并生成中文解读笔记；支持论文问答、小节配图/润色、联网搜索与 AI 配图。
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.0.9-green.svg)](https://github.com/hk011/yanxi-paper-note/releases/tag/v0.0.9)
+[License: MIT](LICENSE)
+[Version](https://github.com/hk011/yanxi-paper-note/releases/tag/v0.0.9)
 
 ## 最新动态
 
@@ -19,6 +19,8 @@
 - [2026.05.24] **v0.0.1** 小节添加配图与 AI 润色；修复笔记图片显示错乱 → [完整更新日志](CHANGELOG.md)
 - [2026.05.24] **v0.0.0** 首个公开发布：PDF 解析、流式笔记、论文问答、AI 配图
 
+
+
 ## 功能
 
 - 用户注册 / 登录
@@ -30,17 +32,23 @@
 - 自定义模型联网（笔记生成 / 问答 / 润色，需配置千帆 Web Search Key）
 - 笔记导出（Markdown / PDF）
 
+
+
 ## 技术栈
 
-| 层级 | 技术 |
-|------|------|
-| 前端 | React 18、TypeScript、Vite、Ant Design |
-| 后端 | Python 3.11+、FastAPI、Uvicorn |
-| 数据库 | SQLite（`backend/yanxi.db`，首次启动自动建表） |
-| 用户文件 | `backend/data/{user_id}/{paper_id}/` |
-| PDF 解析 | [MinerU](https://mineru.net) VLM |
-| 大模型 | [火山方舟](https://www.volcengine.com/product/ark) Responses API |
-| 图像生成 | 火山方舟 Seedream |
+
+| 层级     | 技术                                                           |
+| ------ | ------------------------------------------------------------ |
+| 前端     | React 18、TypeScript、Vite、Ant Design                          |
+| 后端     | Python 3.11+、FastAPI、Uvicorn                                 |
+| 数据库    | SQLite（`backend/yanxi.db`，首次启动自动建表）                          |
+| 用户文件   | `backend/data/{user_id}/{paper_id}/`                         |
+| PDF 解析 | [MinerU](https://mineru.net) VLM                             |
+| 大模型    | [火山方舟](https://www.volcengine.com/product/ark) Responses API |
+| 图像生成   | 火山方舟 Seedream                                                |
+
+
+
 
 ## 外部 API
 
@@ -51,6 +59,8 @@
 - 注册：[mineru.net](https://mineru.net)
 - 用途：PDF → Markdown，提取文本、公式、图表
 - 使用 VLM 多模态解析模式
+
+
 
 ### 火山方舟（大模型 + 生图）
 
@@ -67,13 +77,19 @@
 - 推荐 Seedream 5.0（如 `doubao-seedream-5-0-260128`）
 - 在 `.env` 的 `ark_image_gen_model` 中配置
 
+
+
 ## 快速开始
+
+
 
 ### 环境要求
 
 - Python 3.11+
 - Node.js 18+
 - Conda（推荐）或 Python venv
+
+
 
 ### 1. 克隆并配置
 
@@ -94,6 +110,8 @@ conda activate yanxi
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
+
+
 ### 3. 启动前端
 
 ```bash
@@ -102,7 +120,7 @@ npm install
 npm run dev
 ```
 
-浏览器打开 **http://localhost:5173**
+浏览器打开 **[http://localhost:5173](http://localhost:5173)**
 
 ### 4. 使用
 
@@ -110,12 +128,35 @@ npm run dev
 2. 上传 PDF 论文，等待解析完成
 3. 生成解读笔记，或使用论文问答
 
+
+
 ## QwenPaw Skill 集成（供其他 Agent 调用）
 
 通过 [QwenPaw Skill](https://github.com/agentscope-ai/QwenPaw) 或其他支持 `SKILL.md` 的 Agent，调用研析完整流水线（解析 + 笔记 + 带图 PDF 导出）。
 
-1. 在 `.env` 配置 `yanxi_api_key`（见 `.env.example`）
-2. 按 [`integrations/qwenpaw-skill/README.md`](integrations/qwenpaw-skill/README.md) 导入 Skill 并配置 `YANXI_API_KEY`
+### 研析 API Key 获取方式
+
+`yanxi_api_key` 用于 Skill / CLI 通过 HTTP 头 `X-Yanxi-Api-Key` 调用 `/api/skill/*`，需自行生成 **API Key**。
+
+**方式：**
+
+```bash
+python integrations/get_yanxi_api_key.py
+```
+
+终端会输出 API Key，复制到项目根目录 `.env`：
+
+```env
+yanxi_api_key=此处粘贴生成的API Key
+yanxi_username=qwenpaw
+```
+
+Agent 侧 Skill 配置中的 `YANXI_API_KEY` 需与 `.env` 里 `yanxi_api_key` **完全一致，SKILL.md 的配置中** `YANXI_API_KEY 也要一致`。
+
+### 接入步骤
+
+1. 按上文生成并配置 `yanxi_api_key`（见 `.env.example`）
+2. 按 `[integrations/qwenpaw-skill/README.md](integrations/qwenpaw-skill/README.md)` 导入 Skill 并配置 `YANXI_API_KEY`
 3. Agent 执行 `yanxi_cli.py process <pdf>`，用 `send_file_to_user` 交付 `*_yanxi_note.pdf`
 
 Skill API：`POST /api/skill/process`、`GET /api/skill/papers/{id}/note/export/pdf` 等，详见 Skill 文档。
@@ -125,6 +166,8 @@ Skill API：`POST /api/skill/process`、`GET /api/skill/papers/{id}/note/export/
 - **SQLite** 单文件：`backend/yanxi.db`
 - 启动时自动建表（User、Paper、Note、Asset、Conversation、Message）
 - 用户 PDF、笔记、头像等文件存于 `backend/data/`
+
+
 
 ## License
 

@@ -73,6 +73,15 @@ def _extract_zip_member(zip_path: Path, member_suffix: str, cache_dir: Path) -> 
 
 
 def _find_asset_file(data_dir: Path, rel: str) -> Path | None:
+    from app.services.note_content import fuzzy_resolve_image_rel
+    from app.services.note_sections import normalize_figure_rel_path, resolve_paper_file_path
+
+    clean = normalize_figure_rel_path(rel)
+    if clean:
+        resolved = resolve_paper_file_path(data_dir, clean)
+        if resolved:
+            return resolved
+
     direct = _resolve_asset_file(data_dir, rel)
     if direct:
         return direct
@@ -88,6 +97,13 @@ def _find_asset_file(data_dir: Path, rel: str) -> Path | None:
         cached = _extract_zip_member(zip_path, rel, data_dir / ".export_cache")
         if cached:
             return cached
+
+    if clean:
+        corrected = fuzzy_resolve_image_rel(data_dir, clean)
+        if corrected:
+            resolved = resolve_paper_file_path(data_dir, corrected)
+            if resolved:
+                return resolved
 
     return None
 
