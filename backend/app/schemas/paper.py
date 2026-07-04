@@ -58,7 +58,7 @@ class MarkdownTranslateBody(BaseModel):
 
 class NoteRegenerateBody(BaseModel):
     model: str = ""
-    image_model: str = "ark"
+    image_model: str = "sensenova"
 
 
 class NoteUpdateBody(BaseModel):
@@ -83,7 +83,7 @@ class NoteRefineApplyBody(BaseModel):
 class NoteSectionAddFigureBody(BaseModel):
     heading: str
     instruction: str = ""
-    image_model: str = "ark"
+    image_model: str = "sensenova"
 
 
 class NoteDeleteFigureBody(BaseModel):

@@ -106,6 +106,15 @@ def _migrate_db() -> None:
                 conn.exec_driver_sql(sql)
                 conn.commit()
 
+        pf_cols = {
+            row[1] for row in conn.exec_driver_sql("PRAGMA table_info(paperfolder)")
+        }
+        if "sort_order" not in pf_cols:
+            conn.exec_driver_sql(
+                "ALTER TABLE paperfolder ADD COLUMN sort_order INTEGER DEFAULT 0"
+            )
+            conn.commit()
+
 
 def _backfill_user_account_codes() -> None:
     with Session(get_engine()) as session:

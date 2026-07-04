@@ -29,7 +29,7 @@ async def add_figure_to_section(
     user_id: int,
     heading: str,
     instruction: str = "",
-    image_model: str = "ark",
+    image_model: str = "sensenova",
 ) -> dict:
     data_dir = paper_data_dir(user_id, paper_id)
     note_path = data_dir / "note.md"

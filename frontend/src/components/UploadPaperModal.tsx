@@ -14,6 +14,7 @@ interface UploadPaperModalProps {
   open: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  folderId?: number | null;
 }
 
 function formatFileSize(bytes: number): string {
@@ -25,6 +26,7 @@ export default function UploadPaperModal({
   open,
   onClose,
   onSuccess,
+  folderId = null,
 }: UploadPaperModalProps) {
   const navigate = useNavigate();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -57,7 +59,7 @@ export default function UploadPaperModal({
     }
     setUploading(true);
     try {
-      const paper = await api.uploadPaper(selectedFile);
+      const paper = await api.uploadPaper(selectedFile, folderId);
       message.success("上传成功，开始解析…");
       onSuccess?.();
       onClose();

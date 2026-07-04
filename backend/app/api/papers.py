@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Annotated
 
 import aiofiles
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import exists
 from sqlmodel import Session, select
@@ -33,6 +33,7 @@ from app.schemas.paper import (
     PaperUpdateBody,
 )
 from app.services.folders import (
+    get_folder_or_404,
     get_paper_folder_ids,
     paper_folder_meta,
     should_regenerate_card_on_folder_change,
@@ -74,7 +75,9 @@ def _paper_has_note(user_id: int, paper_id: int) -> bool:
 
 def _paper_cover_url(p: Paper) -> str | None:
     if p.cover_status == "done" and p.cover_path and Path(p.cover_path).exists():
-        return f"/api/papers/{p.id}/cover?v=1"
+        path = Path(p.cover_path)
+        v = int(path.stat().st_mtime)
+        return f"/api/papers/{p.id}/cover?v={v}"
     return None
 
 
@@ -258,8 +261,15 @@ def update_paper(
         session.add(paper)
         session.commit()
         session.refresh(paper)
+        primary_folder_id = (
+            new_folder_ids[0] if len(new_folder_ids) == 1 else None
+        )
         background_tasks.add_task(
-            run_paper_enrichment, paper_id, user.id, force=True
+            run_paper_enrichment,
+            paper_id,
+            user.id,
+            force=True,
+            primary_folder_id=primary_folder_id,
         )
     return _to_summary(session, user.id, paper)
 
@@ -358,16 +368,25 @@ async def upload_paper(
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_session)],
     file: UploadFile = File(...),
+    folder_id: int | None = Form(default=None),
 ):
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         from fastapi import HTTPException
 
         raise HTTPException(400, "仅支持 PDF 文件")
 
+    if folder_id is not None:
+        get_folder_or_404(session, user.id, folder_id)
+
     paper = Paper(user_id=user.id, title=file.filename, status="uploading")
     session.add(paper)
     session.commit()
     session.refresh(paper)
+
+    if folder_id is not None:
+        sync_paper_folders(session, user.id, paper.id, [folder_id])
+        session.commit()
+        session.refresh(paper)
 
     data_dir = paper_data_dir(user.id, paper.id)
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -853,7 +872,7 @@ async def add_figure_to_note_section(
             user_id=user.id,
             heading=body.heading.strip(),
             instruction=body.instruction.strip(),
-            image_model=body.image_model or "ark",
+            image_model=body.image_model or "sensenova",
         )
     except FileNotFoundError:
         raise HTTPException(404, "解读笔记尚未生成")
@@ -1086,7 +1105,7 @@ async def regenerate_note(
         user.id,
         True,
         body.model or "",
-        body.image_model or "ark",
+        body.image_model or "sensenova",
     )
     return {"status": "noting"}
 

@@ -357,6 +357,7 @@ export default function WorkspaceShell({
       <UploadPaperModal
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
+        folderId={uncategorizedActive ? null : selectedFolderId}
         onSuccess={() => {
           void loadSidebar();
           onUploadSuccess?.();

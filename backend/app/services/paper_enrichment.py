@@ -11,7 +11,13 @@ from app.services.paper_summary import generate_paper_summary
 logger = logging.getLogger(__name__)
 
 
-async def run_paper_enrichment(paper_id: int, user_id: int, *, force: bool = False) -> None:
+async def run_paper_enrichment(
+    paper_id: int,
+    user_id: int,
+    *,
+    force: bool = False,
+    primary_folder_id: int | None = None,
+) -> None:
     try:
         await generate_paper_summary(paper_id, user_id, force=force)
     except Exception as exc:
@@ -19,7 +25,12 @@ async def run_paper_enrichment(paper_id: int, user_id: int, *, force: bool = Fal
             "paper enrichment summary failed paper_id=%s: %s", paper_id, exc
         )
     try:
-        await generate_paper_cover(paper_id, user_id, force=force)
+        await generate_paper_cover(
+            paper_id,
+            user_id,
+            force=force,
+            primary_folder_id=primary_folder_id,
+        )
     except Exception as exc:
         logger.warning(
             "paper enrichment cover failed paper_id=%s: %s", paper_id, exc

@@ -19,7 +19,7 @@ app = FastAPI(title="研析 Yanxi", version="0.0.6", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["http://localhost:25000", "http://127.0.0.1:25000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

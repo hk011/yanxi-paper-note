@@ -79,13 +79,20 @@ def _theme_for_folder(folder_id: int, folders: list[Folder]) -> FolderTheme:
     return FolderTheme(f, t, a)
 
 
-def get_paper_cover_palette(session: Session, user_id: int, paper_id: int) -> str:
-    folder_id = session.exec(
-        select(PaperFolder.folder_id)
-        .join(Folder, Folder.id == PaperFolder.folder_id)
-        .where(PaperFolder.paper_id == paper_id)
-        .order_by(Folder.id)
-    ).first()
+def get_paper_cover_palette(
+    session: Session,
+    user_id: int,
+    paper_id: int,
+    *,
+    folder_id: int | None = None,
+) -> str:
+    if folder_id is None:
+        folder_id = session.exec(
+            select(PaperFolder.folder_id)
+            .join(Folder, Folder.id == PaperFolder.folder_id)
+            .where(PaperFolder.paper_id == paper_id)
+            .order_by(PaperFolder.sort_order, Folder.id)
+        ).first()
     if folder_id is None:
         f, t, a = _UNCATEGORIZED
         return f"soft neutral gradient {f} to {t}, accent {a}"

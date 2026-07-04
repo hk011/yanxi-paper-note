@@ -42,14 +42,17 @@ def _load_note(data_dir: Path) -> str:
     return text[:48000] if len(text) > 48000 else text
 
 
-def _load_skeleton(data_dir: Path) -> str:
-    parsed_md = ""
+def _load_paper_text(data_dir: Path) -> str:
     md_p = data_dir / "parsed.md"
     if md_p.exists():
-        parsed_md = md_p.read_text(encoding="utf-8")
+        text = md_p.read_text(encoding="utf-8").strip()
+        if text:
+            return text
     content_list = load_content_list(data_dir)
-    skeleton = build_paper_skeleton(content_list, parsed_md)
-    return skeleton[:12000]
+    skeleton = build_paper_skeleton(content_list, "")
+    if skeleton.strip():
+        return skeleton
+    return "（论文原文尚未解析完成）"
 
 
 def get_or_create_conversation(session: Session, paper_id: int) -> Conversation:
@@ -238,6 +241,12 @@ def _message_to_api(msg: Message, enable_thinking: bool) -> dict:
     return {"role": "assistant", "content": content}
 
 
+def _wrap_user_text_with_paper(user_text: str, paper_text: str | None) -> str:
+    if not paper_text or not paper_text.strip():
+        return user_text
+    return f"【论文原文】\n{paper_text.strip()}\n\n【用户问题】\n{user_text}"
+
+
 def build_chat_messages(
     *,
     system_prompt: str,
@@ -246,14 +255,16 @@ def build_chat_messages(
     attachments: list[dict],
     data_dir: Path,
     enable_thinking: bool,
+    paper_text: str | None = None,
 ) -> list[dict]:
     messages: list[dict] = [{"role": "system", "content": system_prompt}]
     for msg in history:
         messages.append(_message_to_api(msg, enable_thinking))
+    current_text = _wrap_user_text_with_paper(user_text, paper_text)
     messages.append(
         {
             "role": "user",
-            "content": _build_user_content(user_text, attachments, data_dir),
+            "content": _build_user_content(current_text, attachments, data_dir),
         }
     )
     return messages
@@ -269,7 +280,7 @@ async def run_chat_turn(
     enable_thinking: bool,
     enable_search: bool,
     enable_figure_gen: bool,
-    image_model: str = "ark",
+    image_model: str = "sensenova",
     attachments: list[dict],
     emit,
 ) -> None:
@@ -277,7 +288,7 @@ async def run_chat_turn(
     engine = get_engine()
 
     note_text = _load_note(data_dir)
-    skeleton = _load_skeleton(data_dir)
+    paper_text = _load_paper_text(data_dir)
     if enable_search:
         search_capability = (
             CHAT_SEARCH_CAPABILITY_MCP
@@ -289,7 +300,6 @@ async def run_chat_turn(
 
     system_prompt = CHAT_SYSTEM.format(
         note_content=note_text,
-        paper_skeleton=skeleton,
         thinking_label="已开启" if enable_thinking else "已关闭",
         search_label="已开启" if enable_search else "已关闭",
         figure_label="已开启" if enable_figure_gen else "已关闭",
@@ -344,6 +354,7 @@ async def run_chat_turn(
             attachments=attachments,
             data_dir=data_dir,
             enable_thinking=enable_thinking,
+            paper_text=paper_text,
         )
 
     await emit(StreamEvent(type="status", data={"status": "answering"}))

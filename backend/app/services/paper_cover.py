@@ -25,7 +25,13 @@ def cover_file_path(user_id: int, paper_id: int) -> Path:
     return paper_data_dir(user_id, paper_id) / "cover.jpg"
 
 
-async def generate_paper_cover(paper_id: int, user_id: int, *, force: bool = False) -> bool:
+async def generate_paper_cover(
+    paper_id: int,
+    user_id: int,
+    *,
+    force: bool = False,
+    primary_folder_id: int | None = None,
+) -> bool:
     engine = get_engine()
     with Session(engine) as session:
         paper = session.get(Paper, paper_id)
@@ -37,7 +43,9 @@ async def generate_paper_cover(paper_id: int, user_id: int, *, force: bool = Fal
                 return True
         title = paper.title or "未命名论文"
         summary = paper.summary or ""
-        palette = get_paper_cover_palette(session, user_id, paper_id)
+        palette = get_paper_cover_palette(
+            session, user_id, paper_id, folder_id=primary_folder_id
+        )
         paper.cover_status = "generating"
         session.add(paper)
         session.commit()

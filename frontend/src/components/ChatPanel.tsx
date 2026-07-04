@@ -119,7 +119,7 @@ export default function ChatPanel({
   const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
   const [mcpSearchAvailable, setMcpSearchAvailable] = useState(false);
   const [model, setModel] = useState("");
-  const [imageModel, setImageModel] = useState("ark");
+  const [imageModel, setImageModel] = useState("sensenova");
   const [contextLimit, setContextLimit] = useState(256000);
   const [promptTokens, setPromptTokens] = useState(0);
   const [enableThinking, setEnableThinking] = useState(true);
@@ -288,6 +288,10 @@ export default function ChatPanel({
             : null) ||
           config.default_model;
         setModel(pick);
+        const pickedOpt = config.models.find((m) => m.id === pick);
+        if (pickedOpt?.context_limit) {
+          setContextLimit(pickedOpt.context_limit);
+        }
         modelInitializedRef.current = true;
       }
     } catch (e) {
@@ -301,6 +305,10 @@ export default function ChatPanel({
     (next: string) => {
       setModel(next);
       localStorage.setItem(chatModelKey(paperId), next);
+      const opt = models.find((m) => m.id === next);
+      if (opt?.context_limit) {
+        setContextLimit(opt.context_limit);
+      }
       if (isCustomModel(models, next)) {
         setEnableSearch(false);
       }

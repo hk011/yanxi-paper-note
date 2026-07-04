@@ -30,6 +30,7 @@ class Folder(SQLModel, table=True):
 class PaperFolder(SQLModel, table=True):
     paper_id: int = Field(foreign_key="paper.id", primary_key=True)
     folder_id: int = Field(foreign_key="folder.id", primary_key=True)
+    sort_order: int = 0
 
 
 class Paper(SQLModel, table=True):
