@@ -1,6 +1,6 @@
 # 研析 × QwenPaw Skill 集成
 
-通过 [QwenPaw Skill](https://github.com/agentscope-ai/QwenPaw/blob/main/website/public/docs/skills.zh.md) 让 Agent 按**研析笔记生成方法论**解读论文。无需启动研析后端或 API Key。
+通过 [QwenPaw Skill](https://github.com/agentscope-ai/QwenPaw/blob/main/website/public/docs/skills.zh.md) 让 Agent 按**研析笔记生成方法论**解读论文。
 
 ## 架构
 
