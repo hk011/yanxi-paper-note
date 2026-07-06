@@ -38,10 +38,6 @@ class Settings(BaseSettings):
     jwt_secret: str = "yanxi-dev-secret-change-in-prod"
     jwt_expire_hours: int = 72
 
-    # QwenPaw Skill / CLI：设置后可用 X-Yanxi-Api-Key 头调用 /api/skill/*
-    yanxi_api_key: str = ""
-    yanxi_username: str = "qwenpaw"
-
     data_dir: Path = ROOT / "backend" / "data"
     db_path: Path = ROOT / "backend" / "yanxi.db"
 
