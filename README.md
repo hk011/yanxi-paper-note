@@ -19,6 +19,8 @@
 - [2026.05.24] **v0.0.1** 小节添加配图与 AI 润色；修复笔记图片显示错乱 → [完整更新日志](CHANGELOG.md)
 - [2026.05.24] **v0.0.0** 首个公开发布：PDF 解析、流式笔记、论文问答、AI 配图
 
+
+
 ## 功能
 
 - 用户注册 / 登录
@@ -29,6 +31,8 @@
 - 论文问答（文本 + 图片、联网搜索；内置 Ark 或自定义模型 + 千帆 MCP）
 - 自定义模型联网（笔记生成 / 问答 / 润色，需配置千帆 Web Search Key）
 - 笔记导出（Markdown / PDF）
+
+
 
 ## 技术栈
 
@@ -44,6 +48,8 @@
 | 图像生成   | 火山方舟 Seedream                                                |
 
 
+
+
 ## 外部 API
 
 本项目依赖第三方 API，**需自行申请密钥，费用按各平台计费**。
@@ -53,6 +59,8 @@
 - 注册：[mineru.net](https://mineru.net)
 - 用途：PDF → Markdown，提取文本、公式、图表
 - 使用 VLM 多模态解析模式
+
+
 
 ### 火山方舟（大模型 + 生图）
 
@@ -69,13 +77,19 @@
 - 推荐 Seedream 5.0（如 `doubao-seedream-5-0-260128`）
 - 在 `.env` 的 `ark_image_gen_model` 中配置
 
+
+
 ## 快速开始
+
+
 
 ### 环境要求
 
 - Python 3.11+
 - Node.js 18+
 - Conda（推荐）或 Python venv
+
+
 
 ### 1. 克隆并配置
 
@@ -96,6 +110,8 @@ conda activate yanxi
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
+
+
 ### 3. 启动前端
 
 ```bash
@@ -112,6 +128,8 @@ npm run dev
 2. 上传 PDF 论文，等待解析完成
 3. 生成解读笔记，或使用论文问答
 
+
+
 ## QwenPaw Skill 集成（可供其他 Agent 调用）
 
 通过 [QwenPaw Skill](https://github.com/agentscope-ai/QwenPaw) 或其他支持 `SKILL.md` 的 Agent，按研析方法论生成中文论文解读笔记。
@@ -121,13 +139,15 @@ npm run dev
 1. 将 `integrations/qwenpaw-skill/` 打成 zip 导入 QwenPaw，启用 **yanxi** Skill
 2. 对 Agent 说：「用研析解读某 PDF，把 PDF 笔记发给我」
 
-详见 [integrations/qwenpaw-skill/README.md](integrations/qwenpaw-skill/README.md)。
+详见 integrations/qwenpaw-skill/README.md。
 
 ## 数据库
 
 - **SQLite** 单文件：`backend/yanxi.db`
 - 启动时自动建表（User、Paper、Note、Asset、Conversation、Message）
 - 用户 PDF、笔记、头像等文件存于 `backend/data/`
+
+
 
 ## License
 
