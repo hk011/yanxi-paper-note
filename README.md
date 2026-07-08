@@ -130,16 +130,61 @@ npm run dev
 
 
 
-## QwenPaw Skill 集成（可供其他 Agent 调用）
+## QwenPaw Skill 集成（供 Agent 调用）
 
-通过 [QwenPaw Skill](https://github.com/agentscope-ai/QwenPaw) 或其他支持 `SKILL.md` 的 Agent，按研析方法论生成中文论文解读笔记。
+通过 [QwenPaw](https://github.com/agentscope-ai/QwenPaw) 或其他支持 `SKILL.md` 的 Agent，按**研析笔记生成方法论**解读论文。**无需启动研析后端或 API Key**——Agent 用自身工具（PDF 解析、联网搜索、文生图、写 Markdown）完成全流程。
 
-`integrations/qwenpaw-skill/SKILL.md` 内含完整流程与 Prompt（PDF 提取 → 三阶段笔记生成 → Markdown 转 PDF）。Agent 用自身工具执行，最终交付 `{论文简称}_yanxi_note.pdf`。
+完整流程、Prompt 模板与配图规范见 [`integrations/qwenpaw-skill/SKILL.md`](integrations/qwenpaw-skill/SKILL.md)。
 
-1. 将 `integrations/qwenpaw-skill/` 打成 zip 导入 QwenPaw，启用 **yanxi** Skill
-2. 对 Agent 说：「用研析解读某 PDF，把 PDF 笔记发给我」
+### 能做什么
 
-详见 integrations/qwenpaw-skill/README.md。
+| 项目 | 说明 |
+|------|------|
+| 触发词 | 研析、yanxi、解读论文、论文笔记、研析笔记 |
+| 输入 | 英文 PDF 论文 |
+| 输出 | `{论文简称}_yanxi_note.pdf`（图文并茂的中文解读笔记） |
+| 笔记结构 | 与 Web 端 `note_pipeline` 一致：基础信息 → 背景动机 → 核心方法 → 实验结果 → 总结展望 → 扩展阅读 |
+
+### 五步流水线
+
+```
+① PDF 提取        ② 结构化整理       ③ 三阶段笔记生成       ④ 图片自检        ⑤ 转 PDF 交付
+────────────────────────────────────────────────────────────────────────────────────
+读 PDF + 提取图表 → parsed.md      → 阶段一：解读大纲    → 逐张核对原图    → note.pdf
+                    image_catalog     阶段二：六章起草        修复乱图/错图      send_file_to_user
+                                      阶段三：综合终稿
+```
+
+- **阶段一**：生成解读大纲（基础信息、章节结构、关键概念、图片清单）
+- **阶段二**：六章独立起草（可并行）
+- **阶段三**：将草稿整体重写为连贯终稿 `note.md`
+- **阶段四**：**图片自检**——逐张确认 `images/` 原图存在、可显示、且为论文原图（非乱图）；有问题则修复后重新检查，通过后再转 PDF
+
+### 与 Web 端的差异
+
+| 能力 | Web 端 | Skill |
+|------|--------|-------|
+| PDF 解析 | MinerU VLM 精细解析 | Agent 自带 PDF/OCR，图表提取可能较弱 |
+| 笔记规范 | `note_pipeline` 三阶段 | **Prompt 与章节结构与 Web 端一致** |
+| 联网 / 配图 | 火山方舟 + Seedream | Agent 的 `web_search`、文生图工具 |
+| 交付 | 网页导出 PDF | Agent 将 `note.md` 转为 PDF 后发送 |
+
+### 安装与使用
+
+1. 打包并导入 Skill：
+
+```powershell
+cd integrations\qwenpaw-skill
+Compress-Archive -Path SKILL.md -DestinationPath ..\qwenpaw-skill.zip -Force
+```
+
+在 QwenPaw **工作区 → 技能 → ZIP 导入**，启用 **yanxi**。
+
+2. 对 Agent 说：
+
+> 用研析解读 `D:/papers/transformer.pdf`，把 PDF 笔记发给我
+
+更多说明见 [`integrations/qwenpaw-skill/README.md`](integrations/qwenpaw-skill/README.md)。
 
 ## 数据库
 
