@@ -248,7 +248,7 @@ function prepareCloneForPrint(container: HTMLElement): HTMLElement {
   const clone = container.cloneNode(true) as HTMLElement;
   clone
     .querySelectorAll(
-      ".note-draft-waiting, .note-empty-state, .stream-cursor, .ant-modal-root"
+      ".note-draft-waiting, .note-empty-state, .stream-cursor, .ant-modal-root, .note-section-heading-actions"
     )
     .forEach((el) => el.remove());
 

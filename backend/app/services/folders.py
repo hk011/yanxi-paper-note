@@ -83,9 +83,18 @@ def get_paper_folder_ids(session: Session, paper_id: int) -> list[int]:
             select(PaperFolder.folder_id)
             .join(Folder, Folder.id == PaperFolder.folder_id)
             .where(PaperFolder.paper_id == paper_id)
-            .order_by(Folder.id)
+            .order_by(PaperFolder.sort_order, Folder.id)
         ).all()
     )
+
+
+def get_primary_folder_id(session: Session, paper_id: int) -> int | None:
+    return session.exec(
+        select(PaperFolder.folder_id)
+        .join(Folder, Folder.id == PaperFolder.folder_id)
+        .where(PaperFolder.paper_id == paper_id)
+        .order_by(PaperFolder.sort_order, Folder.id)
+    ).first()
 
 
 def should_regenerate_card_on_folder_change(
@@ -120,8 +129,8 @@ def sync_paper_folders(
     ).all()
     for link in existing:
         session.delete(link)
-    for fid in valid_ids:
-        session.add(PaperFolder(paper_id=paper_id, folder_id=fid))
+    for i, fid in enumerate(valid_ids):
+        session.add(PaperFolder(paper_id=paper_id, folder_id=fid, sort_order=i))
 
 
 def paper_folder_meta(
@@ -133,7 +142,7 @@ def paper_folder_meta(
         select(PaperFolder.paper_id, PaperFolder.folder_id, Folder.name)
         .join(Folder, Folder.id == PaperFolder.folder_id)
         .where(PaperFolder.paper_id.in_(paper_ids))
-        .order_by(Folder.id)
+        .order_by(PaperFolder.sort_order, Folder.id)
     ).all()
     result: dict[int, tuple[list[int], list[str]]] = {}
     for paper_id, folder_id, name in rows:

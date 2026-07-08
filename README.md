@@ -10,6 +10,12 @@
 ## 最新动态
 
 - [2026.07.08] **v0.0.10** **Agent Skill** QwenPaw Skill 集成；Agent 无需研析后端即可生成 `{论文简称}_yanxi_note.pdf`；PaddleOCR/Kreuzberg 解析、三阶段笔记、交付前图片自检（图片及其边缘完整）→ [Skill 集成说明](integrations/qwenpaw-skill/README.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.0.10-green.svg)](https://github.com/hk011/yanxi-paper-note/releases/tag/v0.0.10)
+
+## 最新动态
+
+- [2026.07.04] **v0.0.10** 论文问答附带完整原文；信息图统一商汤 Nova；文件夹排序与上传归类 → [完整更新日志](CHANGELOG.md)
 - [2026.06.09] **v0.0.9** 笔记全文翻译；文献库卡片/列表视图与文件夹归类；AI 摘要封面与阅读进度 → [完整更新日志](CHANGELOG.md)
 - [2026.06.06] **v0.0.8** DeepSeek 内置模型（Flash/Pro 优先）；论文问答全屏展开与关闭按钮优化 → [完整更新日志](CHANGELOG.md)
 - [2026.06.03] **v0.0.7** 修复笔记流式渲染开头反复闪烁（v0.0.6 remount 回归）→ [完整更新日志](CHANGELOG.md)
@@ -94,7 +100,7 @@ cp .env.example .env
 cd backend
 conda env create -f environment.yml   # 首次，或改用 venv + pip install -r requirements.txt
 conda activate yanxi
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+uvicorn app.main:app --reload --host 127.0.0.1 --port 24000
 ```
 
 ### 3. 启动前端
@@ -105,7 +111,7 @@ npm install
 npm run dev
 ```
 
-浏览器打开 **[http://localhost:5173](http://localhost:5173)**
+浏览器打开 **http://localhost:25000**
 
 ### 4. 使用
 

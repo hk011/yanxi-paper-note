@@ -12,6 +12,16 @@ from app.db.models import UserModel
 
 CUSTOM_PREFIX = "custom:"
 
+# 前端上下文圆环展示用；DeepSeek V4 支持约 1M tokens
+CONTEXT_LIMIT_DEEPSEEK = 1_048_576
+CONTEXT_LIMIT_DEFAULT = 256_000
+
+
+def resolve_context_limit(model_key: str) -> int:
+    if "deepseek" in (model_key or "").lower():
+        return CONTEXT_LIMIT_DEEPSEEK
+    return CONTEXT_LIMIT_DEFAULT
+
 
 def normalize_openai_base_url(api_url: str) -> str:
     """规范 OpenAI 兼容 Base URL，确保落到 /v1/chat/completions。"""

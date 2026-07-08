@@ -4,12 +4,12 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
+    port: 25000,
     host: "0.0.0.0",
     // 绑定 0.0.0.0 时需显式指定 HMR，否则 localhost 访问热更新会失效
     hmr: {
       host: "localhost",
-      port: 5173,
+      port: 25000,
     },
     // 中文路径 / 部分 macOS 环境下原生 fs watch 不稳定，开启轮询兜底
     watch: {
@@ -18,7 +18,7 @@ export default defineConfig({
     },
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:8000",
+        target: "http://127.0.0.1:24000",
         changeOrigin: true,
       },
     },

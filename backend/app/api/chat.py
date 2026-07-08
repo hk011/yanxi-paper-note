@@ -32,7 +32,7 @@ from app.services.chat_pipeline import (
     list_conversations,
     run_chat_turn,
 )
-from app.services.model_registry import default_model_key, list_model_options
+from app.services.model_registry import default_model_key, list_model_options, resolve_context_limit
 from app.services.mineru import paper_data_dir
 
 router = APIRouter(prefix="/api/papers/{paper_id}/chat", tags=["chat"])
@@ -101,12 +101,19 @@ def chat_config(
     from app.services.tools.image_gen import list_image_model_options
     from app.schemas.model import ImageModelOptionOut
 
+    default = default_model_key(session, user.id)
     return ChatConfigOut(
         models=[
-            ModelOptionOut(id=opt.id, label=opt.label, source=opt.source)
+            ModelOptionOut(
+                id=opt.id,
+                label=opt.label,
+                source=opt.source,
+                context_limit=resolve_context_limit(opt.id),
+            )
             for opt in options
         ],
-        default_model=default_model_key(session, user.id),
+        default_model=default,
+        context_limit=resolve_context_limit(default),
         mcp_search_available=web_search_configured(),
         image_models=[
             ImageModelOptionOut(**item) for item in list_image_model_options()
@@ -281,7 +288,7 @@ async def send_chat_message(
                     enable_thinking=body.enable_thinking,
                     enable_search=body.enable_search,
                     enable_figure_gen=body.enable_figure_gen,
-                    image_model=body.image_model or "ark",
+                    image_model=body.image_model or "sensenova",
                     attachments=attachments,
                     emit=emit,
                 )

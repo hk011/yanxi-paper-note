@@ -142,7 +142,7 @@ export default function PaperPage() {
   const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
   const [mcpSearchAvailable, setMcpSearchAvailable] = useState(false);
   const [noteModel, setNoteModel] = useState("");
-  const [imageModel, setImageModel] = useState("ark");
+  const [imageModel, setImageModel] = useState("sensenova");
   const [generatingModelLabel, setGeneratingModelLabel] = useState("");
   const sseStartedRef = useRef(false);
   const notePrintRef = useRef<HTMLDivElement>(null);

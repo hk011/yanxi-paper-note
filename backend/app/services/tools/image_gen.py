@@ -1,4 +1,4 @@
-"""文生图（gen_figure 工具后端实现）：豆包 Seedream / 商汤 Sensenova"""
+"""文生图（gen_figure 工具后端实现）：商汤 Sensenova（信息图）；封面仍可用豆包 Seedream"""
 
 import asyncio
 import json
@@ -14,7 +14,6 @@ from app.core.config import get_settings
 from app.prompts.image_gen import (
     COVER_SIZE_ARK,
     COVER_SIZE_SENSENOVA,
-    NOTE_FIGURE_SIZE,
     SENSENOVA_FIGURE_SIZE,
     enhance_figure_prompt,
 )
@@ -29,12 +28,10 @@ SENSENOVA_COVER_RETRIES = 2
 
 
 def resolve_image_model(model_id: str) -> ImageModelId:
-    if model_id == "sensenova":
-        settings = get_settings()
-        if not settings.sensenova_api_key.strip():
-            raise ValueError("Sensenova 文生图未配置 API Key")
-        return "sensenova"
-    return "ark"
+    settings = get_settings()
+    if not settings.sensenova_api_key.strip():
+        raise ValueError("商汤 Nova 文生图未配置 API Key")
+    return "sensenova"
 
 
 def _next_gen_filename(output_dir: Path) -> str:
@@ -57,21 +54,14 @@ def _next_gen_filename(output_dir: Path) -> str:
 
 def list_image_model_options() -> list[dict]:
     settings = get_settings()
-    options: list[dict] = [
-        {
-            "id": "ark",
-            "label": "豆包 Seedream",
-            "hint": "通用学术配图",
-            "available": bool(settings.ark_key.strip()),
-        },
+    return [
         {
             "id": "sensenova",
             "label": "商汤 Nova",
-            "hint": "更适合信息图",
+            "hint": "学术信息图",
             "available": bool(settings.sensenova_api_key.strip()),
         },
     ]
-    return options
 
 
 async def _download_image(image_url: str) -> bytes:
@@ -212,7 +202,7 @@ async def generate_figure(
     filename: str | None = None,
     rel_path: str | None = None,
     size: str | None = None,
-    image_model: str = "ark",
+    image_model: str = "sensenova",
 ) -> dict:
     """调用文生图 API 生成说明图，落盘并返回本地访问路径。"""
     provider = resolve_image_model(image_model)
@@ -245,18 +235,11 @@ async def generate_figure(
         len(final_prompt),
     )
 
-    figure_size = (
-        SENSENOVA_FIGURE_SIZE if provider == "sensenova" else NOTE_FIGURE_SIZE
-    )
+    figure_size = SENSENOVA_FIGURE_SIZE
 
-    if provider == "sensenova":
-        image_url, used_model = await _generate_sensenova(
-            final_prompt, size=figure_size, ref_image_path=ref_image_path
-        )
-    else:
-        image_url, used_model = await _generate_ark(
-            final_prompt, size=figure_size, ref_image_path=ref_image_path
-        )
+    image_url, used_model = await _generate_sensenova(
+        final_prompt, size=figure_size, ref_image_path=ref_image_path
+    )
 
     content = await _download_image(image_url)
 
@@ -320,7 +303,7 @@ def format_tool_output(result: dict, paper_id: int) -> str:
             "api_url": api_path,
             "markdown": f"![说明图]({rel})",
             "message": f"图片已生成，请在笔记 markdown 代码块内插入：![说明图]({rel})",
-            "image_model": result.get("image_model", "ark"),
+            "image_model": result.get("image_model", "sensenova"),
         },
         ensure_ascii=False,
     )

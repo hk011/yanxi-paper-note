@@ -9,6 +9,7 @@ class ModelOptionOut(BaseModel):
     id: str
     label: str
     source: str
+    context_limit: int = 256_000
 
 
 class ChatConfigOut(BaseModel):
@@ -40,7 +41,7 @@ class ChatSendRequest(BaseModel):
     enable_thinking: bool = True
     enable_search: bool = False
     enable_figure_gen: bool = False
-    image_model: str = "ark"
+    image_model: str = "sensenova"
     attachments: list[ChatAttachmentIn] = Field(default_factory=list)
 
 

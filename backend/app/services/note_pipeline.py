@@ -71,7 +71,7 @@ async def run_note_pipeline(
     user_id: int,
     regenerate: bool = False,
     model_key: str = "",
-    image_model: str = "ark",
+    image_model: str = "sensenova",
 ) -> None:
     engine = get_engine()
     endpoint: ModelEndpoint | None = None
@@ -114,7 +114,7 @@ async def _run_note_pipeline_body(
     regenerate: bool,
     endpoint: ModelEndpoint,
     engine,
-    image_model: str = "ark",
+    image_model: str = "sensenova",
 ) -> None:
     paper_title = "论文"
     with Session(engine) as session:

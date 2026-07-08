@@ -13,7 +13,7 @@ from app.services.mineru import paper_data_dir
 from app.services.tools.image_gen import format_tool_output, generate_figure
 
 
-def make_gen_figure_tool_handler(paper_id: int, user_id: int, image_model: str = "ark"):
+def make_gen_figure_tool_handler(paper_id: int, user_id: int, image_model: str = "sensenova"):
     data_dir = paper_data_dir(user_id, paper_id)
     assets_dir = data_dir / "assets"
     mineru_dir = data_dir

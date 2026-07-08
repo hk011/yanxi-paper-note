@@ -14,6 +14,9 @@ html, body {
   max-width: 100%;
   padding: 0;
 }
+.note-section-heading-actions {
+  display: none !important;
+}
 .note-print-title {
   display: block;
   font-family: Inter, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif;

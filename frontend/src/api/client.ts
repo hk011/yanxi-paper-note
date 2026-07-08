@@ -127,6 +127,7 @@ export interface ModelOption {
   id: string;
   label: string;
   source: "builtin" | "custom";
+  context_limit?: number;
 }
 
 export interface ModelListResponse {
@@ -341,9 +342,12 @@ export const api = {
       { method: "POST" }
     ),
 
-  uploadPaper: async (file: File) => {
+  uploadPaper: async (file: File, folderId?: number | null) => {
     const form = new FormData();
     form.append("file", file);
+    if (folderId != null) {
+      form.append("folder_id", String(folderId));
+    }
     const token = getToken();
     const res = await fetch("/api/papers/upload", {
       method: "POST",
@@ -476,7 +480,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({
         model: model || "",
-        image_model: imageModel || "ark",
+        image_model: imageModel || "sensenova",
       }),
     }),
 
@@ -578,7 +582,7 @@ export const api = {
         body: JSON.stringify({
           heading,
           instruction: instruction || "",
-          image_model: imageModel || "ark",
+          image_model: imageModel || "sensenova",
         }),
       }
     ),

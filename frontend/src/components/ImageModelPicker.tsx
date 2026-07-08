@@ -11,13 +11,12 @@ export function pickDefaultImageModel(
     return saved;
   }
   const firstAvailable = options.find((o) => o.available);
-  return firstAvailable?.id || "ark";
+  return firstAvailable?.id || "sensenova";
 }
 
 /** API 未返回时的兜底列表（如后端未重启） */
 export const DEFAULT_IMAGE_MODEL_OPTIONS: ImageModelOption[] = [
-  { id: "ark", label: "豆包 Seedream", hint: "通用学术配图", available: true },
-  { id: "sensenova", label: "商汤 Nova", hint: "更适合信息图", available: false },
+  { id: "sensenova", label: "商汤 Nova", hint: "学术信息图", available: false },
 ];
 
 export function resolveImageModelOptions(
@@ -45,6 +44,7 @@ export default function ImageModelPicker({
   label = "配图模型",
 }: Props) {
   if (options.length === 0) return null;
+  if (options.length === 1 && options[0].available) return null;
 
   const segmentedOptions = options.map((opt) => {
     const hintTag =
