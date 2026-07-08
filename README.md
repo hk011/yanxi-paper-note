@@ -9,6 +9,7 @@
 
 ## 最新动态
 
+- [2026.07.08] **v0.0.10** **Agent Skill** QwenPaw Skill 集成；Agent 无需研析后端即可生成 `{论文简称}_yanxi_note.pdf`；PaddleOCR/Kreuzberg 解析、三阶段笔记、交付前图片自检（图片及其边缘完整）→ [Skill 集成说明](integrations/qwenpaw-skill/README.md)
 - [2026.06.09] **v0.0.9** 笔记全文翻译；文献库卡片/列表视图与文件夹归类；AI 摘要封面与阅读进度 → [完整更新日志](CHANGELOG.md)
 - [2026.06.06] **v0.0.8** DeepSeek 内置模型（Flash/Pro 优先）；论文问答全屏展开与关闭按钮优化 → [完整更新日志](CHANGELOG.md)
 - [2026.06.03] **v0.0.7** 修复笔记流式渲染开头反复闪烁（v0.0.6 remount 回归）→ [完整更新日志](CHANGELOG.md)
@@ -18,8 +19,6 @@
 - [2026.05.24] **v0.0.3** 问答可选 AI 配图开关；小节润色预览确认；配图路径与删图修复 → [完整更新日志](CHANGELOG.md)
 - [2026.05.24] **v0.0.1** 小节添加配图与 AI 润色；修复笔记图片显示错乱 → [完整更新日志](CHANGELOG.md)
 - [2026.05.24] **v0.0.0** 首个公开发布：PDF 解析、流式笔记、论文问答、AI 配图
-
-
 
 ## 功能
 
@@ -31,8 +30,6 @@
 - 论文问答（文本 + 图片、联网搜索；内置 Ark 或自定义模型 + 千帆 MCP）
 - 自定义模型联网（笔记生成 / 问答 / 润色，需配置千帆 Web Search Key）
 - 笔记导出（Markdown / PDF）
-
-
 
 ## 技术栈
 
@@ -48,8 +45,6 @@
 | 图像生成   | 火山方舟 Seedream                                                |
 
 
-
-
 ## 外部 API
 
 本项目依赖第三方 API，**需自行申请密钥，费用按各平台计费**。
@@ -59,8 +54,6 @@
 - 注册：[mineru.net](https://mineru.net)
 - 用途：PDF → Markdown，提取文本、公式、图表
 - 使用 VLM 多模态解析模式
-
-
 
 ### 火山方舟（大模型 + 生图）
 
@@ -77,19 +70,13 @@
 - 推荐 Seedream 5.0（如 `doubao-seedream-5-0-260128`）
 - 在 `.env` 的 `ark_image_gen_model` 中配置
 
-
-
 ## 快速开始
-
-
 
 ### 环境要求
 
 - Python 3.11+
 - Node.js 18+
 - Conda（推荐）或 Python venv
-
-
 
 ### 1. 克隆并配置
 
@@ -110,8 +97,6 @@ conda activate yanxi
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-
-
 ### 3. 启动前端
 
 ```bash
@@ -128,50 +113,55 @@ npm run dev
 2. 上传 PDF 论文，等待解析完成
 3. 生成解读笔记，或使用论文问答
 
-
-
 ## QwenPaw Skill 集成（供 Agent 调用）
 
-通过 [QwenPaw](https://github.com/agentscope-ai/QwenPaw) 或其他支持 `SKILL.md` 的 Agent，按**研析笔记生成方法论**解读论文。**无需启动研析后端或 API Key**——Agent 用自身工具（PDF 解析、联网搜索、文生图、写 Markdown）完成全流程。
+通过 [QwenPaw Skill](https://github.com/agentscope-ai/QwenPaw/blob/main/website/public/docs/skills.zh.md) 或其他支持 `SKILL.md` 的 Agent，按**研析笔记生成方法论**解读论文。**无需启动研析 Web 后端**。
 
-完整流程、Prompt 模板与配图规范见 [`integrations/qwenpaw-skill/SKILL.md`](integrations/qwenpaw-skill/SKILL.md)。
+完整流程、Prompt 模板与配图规范见 `[integrations/qwenpaw-skill/SKILL.md](integrations/qwenpaw-skill/SKILL.md)`。
 
 ### 能做什么
 
-| 项目 | 说明 |
-|------|------|
-| 触发词 | 研析、yanxi、解读论文、论文笔记、研析笔记 |
-| 输入 | 英文 PDF 论文 |
-| 输出 | `{论文简称}_yanxi_note.pdf`（图文并茂的中文解读笔记） |
+
+| 项目   | 说明                                                                 |
+| ---- | ------------------------------------------------------------------ |
+| 触发词  | 研析、yanxi、解读论文、论文笔记、研析笔记                                            |
+| 输入   | 英文 PDF 论文                                                          |
+| 输出   | `{论文简称}_yanxi_note.pdf`（图文并茂的中文解读笔记）                               |
 | 笔记结构 | 与 Web 端 `note_pipeline` 一致：基础信息 → 背景动机 → 核心方法 → 实验结果 → 总结展望 → 扩展阅读 |
 
-### 五步流水线
+
+### 架构（Step 1–7）
 
 ```
-① PDF 提取        ② 结构化整理       ③ 三阶段笔记生成       ④ 图片自检        ⑤ 转 PDF 交付
-────────────────────────────────────────────────────────────────────────────────────
-读 PDF + 提取图表 → parsed.md      → 阶段一：解读大纲    → 逐张核对原图    → note.pdf
-                    image_catalog     阶段二：六章起草        修复乱图/错图      send_file_to_user
-                                      阶段三：综合终稿
+QwenPaw Agent（启用 yanxi Skill）
+    │  Step 1–7 流水线（SKILL.md）
+    ▼
+① PaddleOCR 解析 PDF（失败/超时 → Kreuzberg）→ parsed.md + images/
+② web_search（可选 Agent Reach）
+③ 三阶段笔记 → note.md
+④ note.md → note.pdf
+⑤ 交付前自检（PDF 文字非乱码、原图非乱图/非整页/边缘完整）→ send_file_to_user
 ```
 
-- **阶段一**：生成解读大纲（基础信息、章节结构、关键概念、图片清单）
+- **阶段一**：解读大纲（基础信息、章节结构、关键概念、图片清单）
 - **阶段二**：六章独立起草（可并行）
-- **阶段三**：将草稿整体重写为连贯终稿 `note.md`
-- **阶段四**：**图片自检**——逐张确认 `images/` 原图存在、可显示、且为论文原图（非乱图）；有问题则修复后重新检查，通过后再转 PDF
+- **阶段三**：草稿整体重写为连贯终稿 `note.md`
+- **交付前自检**：打开 `note.pdf` 对照原论文 `source.pdf`，检查正文乱码及插图问题（整页截图、裁切不全等），修复后重新生成 PDF 再交付
 
 ### 与 Web 端的差异
 
-| 能力 | Web 端 | Skill |
-|------|--------|-------|
-| PDF 解析 | MinerU VLM 精细解析 | Agent 自带 PDF/OCR，图表提取可能较弱 |
-| 笔记规范 | `note_pipeline` 三阶段 | **Prompt 与章节结构与 Web 端一致** |
-| 联网 / 配图 | 火山方舟 + Seedream | Agent 的 `web_search`、文生图工具 |
-| 交付 | 网页导出 PDF | Agent 将 `note.md` 转为 PDF 后发送 |
+
+| 能力     | Web 端               | Skill                                |
+| ------ | ------------------- | ------------------------------------ |
+| PDF 解析 | MinerU VLM          | **PaddleOCR**（首选）→ **Kreuzberg**（备选） |
+| 联网     | 火山 web_search       | `web_search`；可选 Agent Reach          |
+| 笔记规范   | `note_pipeline` 三阶段 | 与 Web 端 Prompt 一致                    |
+| 交付     | Web 导出              | Agent 转 PDF + 交付前自检                  |
+
 
 ### 安装与使用
 
-1. 打包并导入 Skill：
+1. 将 `integrations/qwenpaw-skill/` 打成 zip（**仅含** `SKILL.md`）并导入：
 
 ```powershell
 cd integrations\qwenpaw-skill
@@ -180,19 +170,24 @@ Compress-Archive -Path SKILL.md -DestinationPath ..\qwenpaw-skill.zip -Force
 
 在 QwenPaw **工作区 → 技能 → ZIP 导入**，启用 **yanxi**。
 
-2. 对 Agent 说：
+1. Agent 按需安装 PDF 解析依赖（二选一，Skill 内自动降级）：
+
+```bash
+pip install "paddleocr[doc-parser]"   # 首选
+pip install kreuzberg                 # PaddleOCR 失败/超时时的备选
+```
+
+1. 对 Agent 说：
 
 > 用研析解读 `D:/papers/transformer.pdf`，把 PDF 笔记发给我
 
-更多说明见 [`integrations/qwenpaw-skill/README.md`](integrations/qwenpaw-skill/README.md)。
+更多说明见 `[integrations/qwenpaw-skill/README.md](integrations/qwenpaw-skill/README.md)`。官方 QwenPaw：[https://github.com/agentscope-ai/QwenPaw](https://github.com/agentscope-ai/QwenPaw)
 
 ## 数据库
 
 - **SQLite** 单文件：`backend/yanxi.db`
 - 启动时自动建表（User、Paper、Note、Asset、Conversation、Message）
 - 用户 PDF、笔记、头像等文件存于 `backend/data/`
-
-
 
 ## License
 
