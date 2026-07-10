@@ -4,6 +4,12 @@
 
 上传英文 PDF 论文，自动解析为结构化 Markdown，并生成中文解读笔记；支持论文问答、小节配图/润色、联网搜索与 AI 配图。
 
+[License: MIT](LICENSE)
+[Version](https://github.com/hk011/yanxi-paper-note/releases/tag/v0.0.9)
+
+## 最新动态
+
+- [2026.07.08] **v0.0.10** **Agent Skill** QwenPaw Skill 集成；Agent 无需研析后端即可生成 `{论文简称}_yanxi_note.pdf`；PaddleOCR/Kreuzberg 解析、三阶段笔记、交付前图片自检（图片及其边缘完整）→ [Skill 集成说明](integrations/qwenpaw-skill/README.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-0.0.10-green.svg)](https://github.com/hk011/yanxi-paper-note/releases/tag/v0.0.10)
 
@@ -33,15 +39,17 @@
 
 ## 技术栈
 
-| 层级 | 技术 |
-|------|------|
-| 前端 | React 18、TypeScript、Vite、Ant Design |
-| 后端 | Python 3.11+、FastAPI、Uvicorn |
-| 数据库 | SQLite（`backend/yanxi.db`，首次启动自动建表） |
-| 用户文件 | `backend/data/{user_id}/{paper_id}/` |
-| PDF 解析 | [MinerU](https://mineru.net) VLM |
-| 大模型 | [火山方舟](https://www.volcengine.com/product/ark) Responses API |
-| 图像生成 | 火山方舟 Seedream |
+
+| 层级     | 技术                                                           |
+| ------ | ------------------------------------------------------------ |
+| 前端     | React 18、TypeScript、Vite、Ant Design                          |
+| 后端     | Python 3.11+、FastAPI、Uvicorn                                 |
+| 数据库    | SQLite（`backend/yanxi.db`，首次启动自动建表）                          |
+| 用户文件   | `backend/data/{user_id}/{paper_id}/`                         |
+| PDF 解析 | [MinerU](https://mineru.net) VLM                             |
+| 大模型    | [火山方舟](https://www.volcengine.com/product/ark) Responses API |
+| 图像生成   | 火山方舟 Seedream                                                |
+
 
 ## 外部 API
 
@@ -110,6 +118,76 @@ npm run dev
 1. 注册并登录
 2. 上传 PDF 论文，等待解析完成
 3. 生成解读笔记，或使用论文问答
+
+## QwenPaw Skill 集成（供 Agent 调用）
+
+通过 [QwenPaw Skill](https://github.com/agentscope-ai/QwenPaw/blob/main/website/public/docs/skills.zh.md) 或其他支持 `SKILL.md` 的 Agent，按**研析笔记生成方法论**解读论文。**无需启动研析 Web 后端**。
+
+完整流程、Prompt 模板与配图规范见 `[integrations/qwenpaw-skill/SKILL.md](integrations/qwenpaw-skill/SKILL.md)`。
+
+### 能做什么
+
+
+| 项目   | 说明                                                                 |
+| ---- | ------------------------------------------------------------------ |
+| 触发词  | 研析、yanxi、解读论文、论文笔记、研析笔记                                            |
+| 输入   | 英文 PDF 论文                                                          |
+| 输出   | `{论文简称}_yanxi_note.pdf`（图文并茂的中文解读笔记）                               |
+| 笔记结构 | 与 Web 端 `note_pipeline` 一致：基础信息 → 背景动机 → 核心方法 → 实验结果 → 总结展望 → 扩展阅读 |
+
+
+### 架构（Step 1–7）
+
+```
+QwenPaw Agent（启用 yanxi Skill）
+    │  Step 1–7 流水线（SKILL.md）
+    ▼
+① PaddleOCR 解析 PDF（失败/超时 → Kreuzberg）→ parsed.md + images/
+② web_search（可选 Agent Reach）
+③ 三阶段笔记 → note.md
+④ note.md → note.pdf
+⑤ 交付前自检（PDF 文字非乱码、原图非乱图/非整页/边缘完整）→ send_file_to_user
+```
+
+- **阶段一**：解读大纲（基础信息、章节结构、关键概念、图片清单）
+- **阶段二**：六章独立起草（可并行）
+- **阶段三**：草稿整体重写为连贯终稿 `note.md`
+- **交付前自检**：打开 `note.pdf` 对照原论文 `source.pdf`，检查正文乱码及插图问题（整页截图、裁切不全等），修复后重新生成 PDF 再交付
+
+### 与 Web 端的差异
+
+
+| 能力     | Web 端               | Skill                                |
+| ------ | ------------------- | ------------------------------------ |
+| PDF 解析 | MinerU VLM          | **PaddleOCR**（首选）→ **Kreuzberg**（备选） |
+| 联网     | 火山 web_search       | `web_search`；可选 Agent Reach          |
+| 笔记规范   | `note_pipeline` 三阶段 | 与 Web 端 Prompt 一致                    |
+| 交付     | Web 导出              | Agent 转 PDF + 交付前自检                  |
+
+
+### 安装与使用
+
+1. 将 `integrations/qwenpaw-skill/` 打成 zip（**仅含** `SKILL.md`）并导入：
+
+```powershell
+cd integrations\qwenpaw-skill
+Compress-Archive -Path SKILL.md -DestinationPath ..\qwenpaw-skill.zip -Force
+```
+
+在 QwenPaw **工作区 → 技能 → ZIP 导入**，启用 **yanxi**。
+
+1. Agent 按需安装 PDF 解析依赖（二选一，Skill 内自动降级）：
+
+```bash
+pip install "paddleocr[doc-parser]"   # 首选
+pip install kreuzberg                 # PaddleOCR 失败/超时时的备选
+```
+
+1. 对 Agent 说：
+
+> 用研析解读 `D:/papers/transformer.pdf`，把 PDF 笔记发给我
+
+更多说明见 `[integrations/qwenpaw-skill/README.md](integrations/qwenpaw-skill/README.md)`。官方 QwenPaw：[https://github.com/agentscope-ai/QwenPaw](https://github.com/agentscope-ai/QwenPaw)
 
 ## 数据库
 

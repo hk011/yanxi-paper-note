@@ -8,5 +8,5 @@ python-jose[cryptography]>=3.3.0
 bcrypt>=4.0.0
 pydantic-settings>=2.6.0
 markdown>=3.5
-xhtml2pdf>=0.2.16
+reportlab>=4.0.0
 pymupdf>=1.24.0

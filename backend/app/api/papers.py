@@ -1053,12 +1053,22 @@ def export_note_pdf(
     if not paper or paper.user_id != user.id:
         raise HTTPException(404, "论文不存在")
     data_dir = paper_data_dir(user.id, paper_id)
+    cached = data_dir / "note_export.pdf"
     try:
-        content = build_note_pdf(data_dir, paper.title)
+        if cached.is_file() and cached.stat().st_size > 128:
+            content = cached.read_bytes()
+            if not content.startswith(b"%PDF"):
+                content = build_note_pdf(data_dir, paper.title)
+                cached.write_bytes(content)
+        else:
+            content = build_note_pdf(data_dir, paper.title)
+            cached.write_bytes(content)
     except FileNotFoundError:
         raise HTTPException(404, "解读笔记尚未生成")
-    except RuntimeError as e:
-        raise HTTPException(500, str(e))
+    except Exception as e:
+        raise HTTPException(500, f"PDF 导出失败: {e}") from e
+    if not content.startswith(b"%PDF"):
+        raise HTTPException(500, "PDF 生成结果无效")
     filename = f"{Path(paper.title).stem or 'note'}-note.pdf"
     return Response(
         content=content,

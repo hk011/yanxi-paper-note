@@ -5,7 +5,7 @@ import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from app.core.config import get_settings
 from app.db.models import User

@@ -448,6 +448,9 @@ async def _run_note_pipeline_body(
     raw = note_path.read_text(encoding="utf-8")
     fixed = _rewrite_image_paths(raw, paper_id)
     fixed = fixed.replace("](assets/", f"](/api/papers/{paper_id}/files/assets/")
+    from app.services.note_content import repair_note_image_refs
+
+    fixed = repair_note_image_refs(fixed, data_dir, paper_id)
     note_path.write_text(fixed, encoding="utf-8")
 
     with Session(engine) as session:
